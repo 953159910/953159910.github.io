@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>🐔长度测试</title>
+    <style>
+        .container { max-width: 600px; margin: 30px auto; padding: 20px; border: 1px solid #eee; border-radius: 8px; }
+        .question { margin: 15px 0; font-weight: 500; }
+        select, input { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; }
+        #calcBtn { margin: 20px 0; padding: 10px; background: #2c3e50; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .result-card { margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px; text-align: center; }
+        .result-title { font-size: 1.5rem; font-weight: bold; color: #333; }
+        .length-num { font-size: 2.5rem; font-weight: bold; color: #2980b9; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 问答题目区域 -->
+        <div class="question">
+            1. 您的手语频率？
+            <select id="q1">
+                <option value="1">偶尔（1-2次/周）</option>
+                <option value="2">经常（3-5次/周）</option>
+                <option value="3">频繁（每天）</option>
+            </select>
+        </div>
+
+        <div class="question">
+            2. 您的手语时长（每次）？
+            <select id="q2">
+                <option value="2">10分钟以内</option>
+                <option value="3.5">10-30分钟</option>
+                <option value="5">30分钟以上</option>
+            </select>
+        </div>
+
+        <div class="question">
+            3. 您的手阴程度？
+            <select id="q3">
+                <option value="1.5">陌生（刚接触）</option>
+                <option value="3">一般（会基础操作）</option>
+                <option value="4.5">熟练（能灵活使用）</option>
+            </select>
+        </div>
+
+        <div class="question">
+            4. 您觉得您的🐔多长？
+            <input type="number" id="q4" min="0" max="18" step="0.5" placeholder="0-18之间的数字（小数也可）">
+        </div>
+
+        <!-- 计算按钮 -->
+        <button id="calcBtn">计算结果</button>
+
+        <!-- 结果显示区域（初始隐藏） -->
+        <div class="result-card" style="display: none;" id="resultCard">
+            <div class="result-title">您的🐔长度是</div>
+            <div class="length-num" id="finalLength">0.0</div>
+        </div>
+    </div>
+
+    <script>
+        // 获取元素
+        const calcBtn = document.getElementById('calcBtn');
+        const resultCard = document.getElementById('resultCard');
+        const finalLength = document.getElementById('finalLength');
+        const q1 = document.getElementById('q1');
+        const q2 = document.getElementById('q2');
+        const q3 = document.getElementById('q3');
+        const q4 = document.getElementById('q4');
+
+        // 计算逻辑：求和后限制在0-18之间（保留1位小数）
+        calcBtn.addEventListener('click', function() {
+            // 处理q4空值（默认0）
+            const q4Val = q4.value ? parseFloat(q4.value) : 0;
+            // 计算总和
+            let total = parseFloat(q1.value) + parseFloat(q2.value) + parseFloat(q3.value) + q4Val;
+            // 限制范围0-18，保留1位小数
+            total = Math.max(0, Math.min(18, total)).toFixed(1);
+            // 显示结果
+            finalLength.textContent = total;
+            resultCard.style.display = 'block';
+        });
+    </script>
+</body>
+</html>
