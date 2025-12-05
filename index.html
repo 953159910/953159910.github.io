@@ -2,8 +2,9 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.6 - Level 1 出口与真实视角版</title>
+    <title>The Backrooms V22.7 - 视角倾斜与 Level 1 修正版</title>
     <style>
+        /* ... (CSS 样式保持不变) ... */
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
         #instructions {
             position: absolute; top: 50%; left: 50%;
@@ -16,14 +17,10 @@
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             width: 6px; height: 6px; background: white; z-index: 1;
         }
-        
-        /* 状态栏样式：HP/Stamina，此区域将常驻显示 */
         #status-bar {
             position: absolute; top: 10px; left: 10px; z-index: 20;
             width: 300px;
         }
-        
-        /* 调试信息区域：默认隐藏，通过 E 键控制 */
         #hud {
             position: absolute; top: 110px; left: 10px; z-index: 20; 
             width: 300px;
@@ -32,7 +29,6 @@
             border-radius: 3px;
             display: none; 
         }
-        
         .bar-container {
             margin-bottom: 5px; background: rgba(0, 0, 0, 0.5); border: 1px solid #fff;
             height: 20px; position: relative;
@@ -58,7 +54,7 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.6 Level 1 出口与真实视角版)</h1>
+        <h1>THE BACKROOMS LEVEL 0 (V22.7 视角倾斜与 Level 1 修正版)</h1>
         <p>HP/体力条常驻显示。找到 **EXIT** 门即可前往 Level 1。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑 | **E 开启/关闭 调试信息**</p>
         <p>点击屏幕开始</p>
@@ -77,20 +73,21 @@
         <p>实体距离: <span id="distance-text">N/A</span></p>
         <p>杏仁水存量: <span id="almond-count-text">N/A</span></p>
         <p>最近杏仁水距离: <span id="nearest-almond-distance-text">N/A</span></p>
-        <p>出口门距离: <span id="exit-door-distance-text">N/A</span></p> </div>
+        <p>出口门距离: <span id="exit-door-distance-text">N/A</span></p>
+    </div>
     <div id="message"></div>
 
     <script>
         // --- 1. 全局变量声明 ---
         
         // 游戏参数
-        let GRID_SIZE = 30; // Level 0 默认大小
+        let GRID_SIZE = 30; 
         const TILE_SIZE = 10;
         const WALL_HEIGHT = 3;
         const PLAYER_HEIGHT = 1.6;
         let MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
         let HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
-        let currentLevel = 0; // 当前所在 Level
+        let currentLevel = 0; 
 
         // 运动参数
         const WALK_ACCEL = 50.0;
@@ -100,12 +97,11 @@
         const PLAYER_WIDTH = 1.0; 
         const PLAYER_DEPTH = 1.0;
 
-        // 头部晃动参数 (V22.6 新增)
-        let headSwayTarget = 0; 
-        let currentHeadSway = 0; 
-        let prevCameraRotationY; // 用于计算旋转变化量
-        const HEAD_SWAY_FACTOR = 0.05; 
-        const SWAY_SMOOTHING = 0.1;
+        // 视角倾斜参数 (V22.7 修正)
+        let rotationTargetZ = 0; // 目标 Z 轴旋转角度 (弧度)
+        let prevCameraRotationY; // 用于计算水平旋转变化量
+        const SWAY_MAX_ANGLE = Math.PI * 0.05; // 最大倾斜角度 (约9度)
+        const SWAY_SMOOTHING = 0.2; // 归位平滑度
 
         // 游戏状态
         let health = 100;
@@ -157,7 +153,6 @@
 
         // --- 2. 核心函数定义 ---
 
-        // 页面加载入口
         window.onload = function() {
             try {
                 document.getElementById('the-hum').src = 'the_hum.mp3';
@@ -182,7 +177,7 @@
             setupInputs();
             window.addEventListener('resize', onWindowResize);
             
-            setupLevel(0); // 初始化 Level 0
+            setupLevel(0); 
             if(typeof updateHUD === 'function') updateHUD();
         }
 
@@ -197,24 +192,23 @@
             
             currentLevel = levelIndex;
             
-            // 2. 设置 Level 参数
-            let floorColor, wallColor, fogColor, levelSize;
-            let wallDensity = 0.35;
+            // 2. 设置 Level 参数 (V22.7 Level 1 修正)
+            let floorColor, wallColor, fogColor, levelSize, wallDensity;
 
             if (levelIndex === 0) {
-                // Level 0: Backrooms (米黄/棕色)
+                // Level 0: Backrooms 
                 levelSize = 30;
                 wallColor = 0xb6a04e;
                 floorColor = 0x91815f;
                 fogColor = 0x998b4b;
                 wallDensity = 0.35;
             } else if (levelIndex === 1) {
-                // Level 1: Habitable Zone (红色/暗色调 - 参考仓库/停车场)
+                // Level 1: 宜居区 (黄褐色混凝土/深灰色沥青)
                 levelSize = 25; 
-                wallColor = 0x990000; // 暗红色混凝土
+                wallColor = 0x808000; // 偏黄的苔藓绿/混凝土色
                 floorColor = 0x444444; // 深灰色沥青
-                fogColor = 0x333333; // 黑色雾气
-                wallDensity = 0.20; // 密度稍低，模拟更大的空间
+                fogColor = 0x333333; // 仓库中的昏暗环境
+                wallDensity = 0.20; 
             } else {
                 return; 
             }
@@ -242,8 +236,10 @@
             lastCameraPosition.copy(camera.position);
 
             if (levelIndex === 0) {
-                createExitDoor(); // Level 0 创建出口
-            } 
+                createExitDoor(); 
+            } else if (levelIndex === 1) {
+                addLevel1Details(levelSize); // V22.7 新增 Level 1 细节
+            }
             
             createMonster();
             spawnAlmondWater(3 + levelIndex * 2); 
@@ -258,7 +254,53 @@
             updateHUD();
         }
 
-        // --- 核心实体创建 ---
+        function addLevel1Details(size) {
+            const HALF_MAP_SIZE_LOCAL = (size * TILE_SIZE) / 2;
+            
+            // 1. 铁门 (装饰性)
+            const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 4);
+            const doorMat = new THREE.MeshBasicMaterial({ color: 0x333333 }); 
+
+            for (let i = 0; i < 5; i++) { 
+                let gridX, gridZ;
+                do {
+                    gridX = Math.floor(Math.random() * (size - 2)) + 1;
+                    gridZ = Math.floor(Math.random() * (size - 2)) + 1;
+                } while (MAP_DATA[gridZ][gridX] !== 1); // 必须放置在墙体上
+                
+                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                
+                const door = new THREE.Mesh(doorGeo, doorMat);
+                door.position.set(x, WALL_HEIGHT / 2, z);
+                // 确保门体旋转与墙体方向一致
+                if (Math.abs(x - (gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL)) > Math.abs(z - (gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL))) {
+                    door.rotation.y = Math.PI / 2;
+                }
+
+                scene.add(door);
+            }
+
+            // 2. 蒸汽/水管 (装饰性)
+            const pipeMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.3 });
+            const pipeGeo = new THREE.CylinderGeometry(0.1, 0.1, TILE_SIZE * 0.9, 8);
+            
+            for (let z = 1; z < size - 1; z++) {
+                for (let x = 1; x < size - 1; x++) {
+                    if (MAP_DATA[z][x] === 0 && Math.random() < 0.1) {
+                        const xPos = x * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                        const zPos = z * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                        
+                        const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+                        pipe.position.set(xPos + TILE_SIZE/3, WALL_HEIGHT - 0.2, zPos - TILE_SIZE/3); 
+                        pipe.rotation.x = Math.PI / 2;
+                        pipe.rotation.z = Math.PI / 2;
+                        scene.add(pipe);
+                    }
+                }
+            }
+        }
+
 
         function createExitTextTexture() {
             const canvas = document.createElement('canvas');
@@ -275,12 +317,11 @@
         function createExitDoor() {
             if (currentLevel !== 0) return; 
 
-            const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 3); // 银色门
+            const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 3); 
             const doorMat = new THREE.MeshBasicMaterial({ color: 0xC0C0C0, map: createExitTextTexture() });
             exitDoor = new THREE.Mesh(doorGeo, doorMat);
             exitDoor.isExitDoor = true;
 
-            // 放置在地图角落 (远离起始点)
             const x = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
             const z = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
             
@@ -291,7 +332,7 @@
 
         function spawnAlmondWater(count) {
             const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
-            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); // V22.5: 黄色
+            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
             
             for (let i = 0; i < count; i++) {
                 let gridX, gridZ, attempts = 0;
@@ -339,7 +380,7 @@
             }
         }
 
-        // --- 3. 游戏循环 (包含头部晃动逻辑) ---
+        // --- 3. 游戏循环 (V22.7 视角倾斜逻辑) ---
 
         function animate() {
             requestAnimationFrame(animate);
@@ -427,22 +468,23 @@
                     canJump = true;
                 }
                 
-                // --- 头部延迟/晃动逻辑 (V22.6 新增) ---
+                // --- 视角倾斜/旋转逻辑 (V22.7 修正) ---
                 if (prevCameraRotationY !== undefined) {
+                    // 计算水平旋转变化量
                     const rotationDelta = camera.rotation.y - prevCameraRotationY; 
                     
-                    headSwayTarget = THREE.MathUtils.clamp(
-                        -rotationDelta * 100 * HEAD_SWAY_FACTOR, 
-                        -0.05, 0.05 // 限制最大晃动距离
+                    // 设置目标 Z 轴旋转角度：右转 (rotationDelta < 0) -> Z轴负旋转 (屏幕右倾)
+                    // 倾斜角度与旋转速度成正比，并钳制在最大角度内。
+                    rotationTargetZ = THREE.MathUtils.clamp(
+                        rotationDelta * 10 * SWAY_MAX_ANGLE, 
+                        -SWAY_MAX_ANGLE, SWAY_MAX_ANGLE 
                     );
                 }
-                currentHeadSway += (headSwayTarget - currentHeadSway) * SWAY_SMOOTHING;
-
-                // 应用晃动效果到相机位置 (本地X轴)
-                camera.position.x += currentHeadSway * Math.cos(camera.rotation.y + Math.PI / 2);
-                camera.position.z += currentHeadSway * Math.sin(camera.rotation.y + Math.PI / 2);
+                
+                // 平滑地将当前 Z 轴旋转角度移向目标值 (或归零)
+                camera.rotation.z += (rotationTargetZ - camera.rotation.z) * SWAY_SMOOTHING;
                 prevCameraRotationY = camera.rotation.y; 
-                // --- 头部延迟/晃动逻辑 结束 ---
+                // --- 视角倾斜/旋转逻辑 结束 ---
 
                 monsterAI(delta); 
                 updateHUD();
@@ -452,14 +494,13 @@
             renderer.render(scene, camera);
         }
 
-        // --- 4. 辅助功能 ---
+        // --- 4. 辅助功能 (保持不变) ---
 
         function onMouseDown(event) {
             if (controls.isLocked && event.button === 0) { 
                 const pickupRaycaster = new THREE.Raycaster();
                 pickupRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
                 
-                // 1. 检查杏仁水拾取
                 const almondIntersects = pickupRaycaster.intersectObjects(almondWaterObjects);
                 if (almondIntersects.length > 0 && almondIntersects[0].distance < 2.0) { 
                     const bottle = almondIntersects[0].object;
@@ -472,7 +513,6 @@
                     return;
                 }
                 
-                // 2. 检查出口门交互
                 if (currentLevel === 0 && exitDoor) {
                     const exitIntersects = pickupRaycaster.intersectObjects([exitDoor]);
                     if (exitIntersects.length > 0 && exitIntersects[0].distance < 3.0) {
@@ -485,24 +525,20 @@
         
         function updateHUD() {
             if (!document.getElementById('health-bar')) return;
-            // 状态栏 (HP/Stamina) 始终更新
             document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
             document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
             
-            // 计算最近杏仁水距离
             let nearestDistance = Infinity;
             almondWaterObjects.forEach(bottle => {
                 const dist = camera.position.distanceTo(bottle.position);
                 if (dist < nearestDistance) nearestDistance = dist;
             });
 
-            // V22.6 新增：计算出口门距离
             let exitDistance = Infinity;
             if (exitDoor && currentLevel === 0) {
                 exitDistance = camera.position.distanceTo(exitDoor.position);
             }
             
-            // 调试信息 (FPS/Distance) 根据 E 键状态切换显示
             document.getElementById('hud').style.display = debugHudVisible ? 'block' : 'none'; 
             
             if (health <= 0) {
