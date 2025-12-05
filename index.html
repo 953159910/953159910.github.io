@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V21.0 - 最终碰撞修复版 (30x30)</title>
+    <title>The Backrooms V22.0 - AABB 物理引擎版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
         #instructions {
@@ -46,9 +46,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V21.0 最终碰撞修复版)</h1>
-        <p>按下 **Ctrl + Q** 键切换穿墙模式 (安全措施)。按下 **E** 键显示/隐藏调试信息。</p>
-        <p>点击屏幕开始</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.0 AABB 物理版)</h1>
+        <p>物理引擎已重写，彻底修复穿墙 Bug！</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑</p>
     </div>
     <div id="crosshair"></div>
@@ -60,13 +59,11 @@
         <p>帧数 (FPS): <span id="fps-text">N/A</span></p>
         <p>实体距离: <span id="distance-text">N/A</span></p>
         <p>杏仁水存量: <span id="almond-count-text">N/A</span></p>
-        <p>最近杏仁水距离: <span id="almond-nearest-text">N/A</span></p>
     </div>
     <div id="message"></div>
 
     <script>
         window.onload = function() {
-            // 恢复音频文件的引用
             document.getElementById('the-hum').src = 'the_hum.mp3';
             document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
             document.getElementById('monster-chase').src = 'monster_chase.mp3';
@@ -82,23 +79,14 @@
         let prevTime = performance.now();
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
-        const raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 1.6);
         
         let health = 100;
         let stamina = 100;
         
-        // V19.0 冲刺调整：速度和消耗
         const STAMINA_RUN_COST = 20; 
         const STAMINA_REGEN = 15;
         const MONSTER_DAMAGE = 20;
         
-        // V19.0 跳跃/重力参数
-        let canJump = false; 
-        const JUMP_VELOCITY = 6.0; 
-        const GRAVITY = -15.0; 
-        
-        // V21.0 修复: 碰撞距离设置为 1.0 (最终尝试修复斜向穿墙)
-        const PLAYER_COLLISION_DISTANCE = 1.0; 
         const WALK_ACCEL = 50.0;
         const RUN_ACCEL = 100.0; 
         const MONSTER_SPEED = 3.0; 
@@ -106,13 +94,22 @@
         const WALL_HEIGHT = 3;
         const PLAYER_HEIGHT = 1.6;
 
+        // **V22.0 新增：AABB 碰撞相关变量**
+        const PLAYER_WIDTH = 1.0; // 玩家碰撞箱宽度 (1米)
+        const PLAYER_DEPTH = 1.0; // 玩家碰撞箱深度 (1米)
+        let wallBoundingBoxes = []; // 存储所有墙壁的 Box3 对象
+        let playerBox = new THREE.Box3(); // 玩家的实时碰撞箱
+
+        let canJump = false; 
+        const JUMP_VELOCITY = 6.0; 
+        const GRAVITY = -15.0; 
+
         let monster;
         let monsterState = 'wandering'; 
         let monsterWanderTarget = new THREE.Vector3();
         const CHASE_DISTANCE = 15; 
         const MONSTER_COLLISION_DISTANCE = 0.5;
 
-        // V17.0: 恢复原始地图尺寸 30x30
         const GRID_SIZE = 30; 
         let MAP_DATA; 
         let monsterDistance = Infinity; 
@@ -131,14 +128,14 @@
         let currentFPS = 0;
         let debugHudVisible = false;
         
-        let wallObjects = []; 
+        let wallObjects = []; // 仅用于怪物射线检测
         let almondWaterObjects = []; 
 
         const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
         const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
 
 
-        // --- 地图生成与渲染 ---
+        // --- 地图生成 ---
 
         function generateRandomMap(size, wallDensity = 0.35) { 
             const map = Array.from({ length: size }, () => Array(size).fill(0));
@@ -162,11 +159,11 @@
             const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffee, side: THREE.DoubleSide });
 
             wallObjects.length = 0; 
+            wallBoundingBoxes.length = 0; // 清空碰撞箱数组
 
             const halfFinalSize = HALF_MAP_SIZE;
             const textureRepeatFactor = 1; 
 
-            // 创建单个大地图块
             for (let z = 0; z < GRID_SIZE; z++) {
                 for (let x = 0; x < GRID_SIZE; x++) {
                     
@@ -203,7 +200,11 @@
                         wall.position.set(xPos, WALL_HEIGHT / 2, zPos);
                         wall.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
                         scene.add(wall);
-                        wallObjects.push(wall); 
+                        wallObjects.push(wall); // 用于怪物AI
+                        
+                        // **V22.0: 生成并存储墙壁的 Box3 碰撞箱**
+                        const box = new THREE.Box3().setFromObject(wall);
+                        wallBoundingBoxes.push(box);
                     }
                 }
             }
@@ -216,14 +217,11 @@
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x998b4b); 
-            
-            // 恢复原始浓雾密度 0.08
             scene.fog = new THREE.FogExp2(0x998b4b, 0.08); 
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.y = PLAYER_HEIGHT;
             
-            // 玩家起始位置
             const halfFinalSize = HALF_MAP_SIZE;
             camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
             camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
@@ -274,7 +272,6 @@
                             showPickupMessage("请同时按下 Ctrl + Q 开启调试模式。");
                         }
                         break;
-                    // V19.0: 添加跳跃
                     case 'Space': 
                         if (canJump === true) { 
                             velocity.y += JUMP_VELOCITY;
@@ -311,14 +308,12 @@
                 
                 if (intersects.length > 0 && intersects[0].distance < 2.0) { 
                     const bottle = intersects[0].object;
-                    
                     health = 100;
                     stamina = 100;
                     updateHUD();
                     showPickupMessage("杏仁水：生命值和体力已恢复！");
                     document.getElementById('almond-pickup').play();
                     scene.remove(bottle);
-                    
                     const index = almondWaterObjects.indexOf(bottle);
                     if (index > -1) {
                         almondWaterObjects.splice(index, 1);
@@ -412,9 +407,7 @@
         function findTeleportSpot() {
             const maxRangeTiles = 5; 
             const minRangeTiles = 2; 
-            
             const halfFinalSize = HALF_MAP_SIZE;
-            
             const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
             const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
             
@@ -425,13 +418,10 @@
             do {
                 const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
                 const angle = Math.random() * Math.PI * 2;
-                
                 const offsetX = Math.floor(range * Math.cos(angle));
                 const offsetZ = Math.floor(range * Math.sin(angle));
-                
                 gridX = playerGridX + offsetX;
                 gridZ = playerGridZ + offsetZ;
-                
                 attempts++;
             } while (
                 (gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) &&
@@ -468,6 +458,7 @@
             );
             scene.add(monster);
             wallObjects.push(monster); 
+            // 怪物不加入 wallBoundingBoxes，它用自己的 AI 逻辑避障
         }
 
         function monsterAI(delta) {
@@ -482,7 +473,6 @@
                 let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * delta);
                 monsterStep.y = 0; 
                 
-                // 实体碰撞检测
                 const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
                 const wallsOnly = wallObjects.filter(obj => obj !== monster); 
                 const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
@@ -516,7 +506,6 @@
                 let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * 0.5 * delta); 
                 monsterStep.y = 0; 
 
-                // 实体碰撞检测
                 const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
                 const wallsOnly = wallObjects.filter(obj => obj !== monster); 
                 const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
@@ -536,7 +525,17 @@
             }
         }
         
-        // --- 核心动画循环 ---
+        // --- 核心动画循环 (V22.0 重写) ---
+
+        // 辅助函数：检查 Box3 是否与任何墙壁 Box3 相交
+        function checkCollision(box) {
+            for (let i = 0; i < wallBoundingBoxes.length; i++) {
+                if (box.intersectsBox(wallBoundingBoxes[i])) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         function animate() {
             requestAnimationFrame(animate);
@@ -559,7 +558,6 @@
                 
                 if (timeMs - lastTeleportCheckTime > TELEPORT_CHECK_INTERVAL) {
                     lastTeleportCheckTime = timeMs;
-                    
                     if (timeMs - lastTeleportTime > TELEPORT_COOLDOWN) {
                         const newPos = findTeleportSpot();
                         if (newPos) {
@@ -572,11 +570,9 @@
                     }
                 }
 
-                // 玩家运动设置 (水平运动)
+                // 玩家运动设置
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
-
-                // V19.0: 应用重力
                 velocity.y += GRAVITY * delta; 
                 
                 direction.z = Number(moveForward) - Number(moveBackward);
@@ -604,57 +600,42 @@
                 const localStepX = -velocity.x * delta;
                 const localStepZ = -velocity.z * delta;
 
-                // 斜向穿墙修复: 独立检查 X 和 Z 方向的碰撞
-                const wallsOnly = wallObjects.filter(obj => obj !== monster);
-
+                // --- V22.0: AABB 碰撞检测核心逻辑 ---
                 if (!noClip) {
-                    let canMoveX = true;
-                    let canMoveZ = true;
-
-                    // --- X 轴碰撞检测 ---
+                    // 1. 尝试 X 轴移动
                     if (Math.abs(localStepX) > 0) {
-                        const rayXDir = new THREE.Vector3(localStepX, 0, 0).normalize().applyQuaternion(camera.quaternion);
-                        rayXDir.y = 0; 
+                        controls.moveRight(localStepX); // 临时移动
+                        // 更新玩家碰撞箱
+                        playerBox.setFromCenterAndSize(camera.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
                         
-                        // 使用 PLAYER_COLLISION_DISTANCE = 1.0
-                        const wallRaycasterX = new THREE.Raycaster(camera.position, rayXDir, 0, PLAYER_COLLISION_DISTANCE);
-                        const collisionsX = wallRaycasterX.intersectObjects(wallsOnly);
-                        
-                        if (collisionsX.length > 0) { 
-                            velocity.x = 0; 
-                            canMoveX = false;
+                        if (checkCollision(playerBox)) {
+                            // 发生碰撞，撤销 X 轴移动，并清除速度
+                            controls.moveRight(-localStepX);
+                            velocity.x = 0;
                         }
                     }
-                    
-                    // --- Z 轴碰撞检测 ---
-                    if (Math.abs(localStepZ) > 0) {
-                        const rayZDir = new THREE.Vector3(0, 0, localStepZ).normalize().applyQuaternion(camera.quaternion);
-                        rayZDir.y = 0; 
-                        
-                        // 使用 PLAYER_COLLISION_DISTANCE = 1.0
-                        const wallRaycasterZ = new THREE.Raycaster(camera.position, rayZDir, 0, PLAYER_COLLISION_DISTANCE);
-                        const collisionsZ = wallRaycasterZ.intersectObjects(wallsOnly);
-                        
-                        if (collisionsZ.length > 0) {
-                            velocity.z = 0; 
-                            canMoveZ = false;
-                        }
-                    }
-                    
-                    // 仅在没有碰撞时进行水平移动
-                    if (canMoveX) controls.moveRight(localStepX);
-                    if (canMoveZ) controls.moveForward(localStepZ);
 
+                    // 2. 尝试 Z 轴移动
+                    if (Math.abs(localStepZ) > 0) {
+                        controls.moveForward(localStepZ); // 临时移动
+                        playerBox.setFromCenterAndSize(camera.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
+                        
+                        if (checkCollision(playerBox)) {
+                            // 发生碰撞，撤销 Z 轴移动，并清除速度
+                            controls.moveForward(-localStepZ);
+                            velocity.z = 0;
+                        }
+                    }
                 } else {
-                    // No-Clip 模式下直接移动
+                    // No-Clip 模式
                     controls.moveRight(localStepX); 
                     controls.moveForward(localStepZ); 
                 }
                 
-                // V19.0: 应用垂直速度
+                // 应用垂直移动
                 camera.position.y += velocity.y * delta;
 
-                // V19.0: 地面检测
+                // 地面检测
                 if (camera.position.y <= PLAYER_HEIGHT) {
                     velocity.y = 0;
                     camera.position.y = PLAYER_HEIGHT;
@@ -667,42 +648,6 @@
 
             prevTime = time;
             renderer.render(scene, camera);
-        }
-        
-        // --- 辅助功能函数 ---
-        
-        function updateHUD() {
-            document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
-            document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
-            
-            document.getElementById('hud').style.display = debugHudVisible ? 'block' : 'none';
-
-            if (health <= 0) {
-                controls.unlock();
-                document.getElementById('instructions').innerHTML = '<h1>游戏结束 (你已被捕获)</h1><p>按 F5 重新开始</p>';
-                document.getElementById('instructions').style.display = 'block';
-                document.getElementById('the-hum').pause();
-                document.getElementById('monster-chase').pause();
-                return;
-            }
-
-            if (debugHudVisible) {
-                let nearestDistance = Infinity;
-                almondWaterObjects.forEach(bottle => {
-                    const dist = camera.position.distanceTo(bottle.position);
-                    if (dist < nearestDistance) {
-                        nearestDistance = dist;
-                    }
-                });
-                
-                document.getElementById('fps-text').textContent = currentFPS.toFixed(0); 
-
-                document.getElementById('distance-text').textContent = 
-                    monsterDistance === Infinity ? 'N/A' : `${monsterDistance.toFixed(2)} m`;
-                document.getElementById('almond-count-text').textContent = almondWaterObjects.length;
-                document.getElementById('almond-nearest-text').textContent = 
-                    nearestDistance === Infinity ? 'N/A' : `${nearestDistance.toFixed(2)} m`;
-            }
         }
         
         function createNoiseTexture(colorHex) {
