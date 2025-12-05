@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V12.3 - 距离显示与实体增强版</title>
+    <title>The Backrooms V12.6 - 距离生成资源版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
         #instructions {
@@ -44,8 +44,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (增强版)</h1>
-        <p>实体已增强可见性，新增距离显示！</p>
+        <h1>THE BACKROOMS LEVEL 0 (资源无限版)</h1>
+        <p>杏仁水每移动 100 米生成一瓶。</p>
         <p>点击屏幕开始</p>
         <p>W, A, S, D 移动 | SHIFT 奔跑 | 拾取杏仁水 (小黄瓶) 可回血</p>
     </div>
@@ -54,7 +54,8 @@
         HP: <div id="health-bar" class="bar-container"><div class="bar-fill" style="width: 100%;"></div></div>
         Stamina: <div id="stamina-bar" class="bar-container"><div class="bar-fill" style="width: 100%;"></div></div>
         ---
-        Distance to Entity: <span id="distance-text">N/A</span> </div>
+        Distance to Entity: <span id="distance-text">N/A</span>
+    </div>
     <div id="message"></div>
 
     <script>
@@ -101,10 +102,23 @@
 
         const GRID_SIZE = 30; 
         let MAP_DATA; 
-        let monsterDistance = Infinity; // **新增：用于记录怪物距离**
+        let monsterDistance = Infinity; 
+        
+        // 实体传送计时器和冷却设置
+        const TELEPORT_COOLDOWN = 60000; // 60秒
+        const TELEPORT_CHECK_INTERVAL = 10000; // 10秒
+        let lastTeleportTime = 0;
+        let lastTeleportCheckTime = 0;
 
-        // --- 随机地图生成 (不变) ---
-        function generateRandomMap(size, wallDensity = 0.3) {
+        // **杏仁水无限生成机制参数**
+        let totalDistanceTraveled = 0;
+        const ALMOND_SPAWN_INTERVAL = 100; // 100米生成一瓶
+        let distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
+        let lastCameraPosition = new THREE.Vector3();
+
+
+        // --- 随机地图生成 (墙体密度 0.35) ---
+        function generateRandomMap(size, wallDensity = 0.35) { 
             const map = Array.from({ length: size }, () => Array(size).fill(0));
             for (let i = 0; i < size; i++) {
                 map[0][i] = 1; map[size - 1][i] = 1;
@@ -132,6 +146,9 @@
             camera.position.y = PLAYER_HEIGHT;
             camera.position.x = TILE_SIZE / 2; 
             camera.position.z = TILE_SIZE / 2; 
+            
+            // **初始化上次相机位置**
+            lastCameraPosition.copy(camera.position); 
 
             const wallTexture = createNoiseTexture(0xb6a04e); 
             const floorTexture = createNoiseTexture(0x91815f); 
@@ -139,7 +156,8 @@
 
             createMaze(wallTexture, floorTexture, ceilingTexture);
             createMonster(); 
-            spawnAlmondWater(5); 
+            // **调整初始生成数量为 3 瓶**
+            spawnAlmondWater(3); 
 
             renderer = new THREE.WebGLRenderer({ antialias: false }); 
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -237,7 +255,7 @@
             }
         }
 
-        // --- 道具系统 (不变) ---
+        // --- 道具系统 (初始生成) ---
         function spawnAlmondWater(count) {
             const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
             const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
@@ -264,6 +282,53 @@
                     scene.add(bottle);
                     almondWaterObjects.push(bottle);
                 }
+            }
+        }
+        
+        // **新增：单瓶杏仁水生成函数 (基于距离)**
+        function spawnSingleAlmondWater() {
+            // Spawn range: 50m to 100m (5 to 10 tiles)
+            const maxRangeTiles = 10; 
+            const minRangeTiles = 5; 
+            
+            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
+            
+            let gridX, gridZ;
+            let attempts = 0;
+            const maxAttempts = 50;
+
+            do {
+                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
+                const angle = Math.random() * Math.PI * 2;
+                
+                const offsetX = Math.floor(range * Math.cos(angle));
+                const offsetZ = Math.floor(range * Math.sin(angle));
+                
+                gridX = playerGridX + offsetX;
+                gridZ = playerGridZ + offsetZ;
+                
+                attempts++;
+            } while (
+                (gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) &&
+                attempts < maxAttempts
+            );
+
+            if (attempts < maxAttempts) {
+                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+
+                const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
+                const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
+                const bottle = new THREE.Mesh(bottleGeo, bottleMat);
+
+                bottle.position.set(x, PLAYER_HEIGHT / 2, z);
+                bottle.isAlmondWater = true; 
+                scene.add(bottle);
+                almondWaterObjects.push(bottle);
+                showPickupMessage("杏仁水已在附近生成！");
             }
         }
         
@@ -294,15 +359,53 @@
                 msgElement.style.opacity = 0;
             }, 3000);
         }
+        
+        // 查找安全的传送位置 (不变)
+        function findTeleportSpot() {
+            const maxRangeTiles = 5; 
+            const minRangeTiles = 2; 
+            
+            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
+            
+            let gridX, gridZ;
+            let attempts = 0;
+            const maxAttempts = 50;
 
-        // --- 怪物生成与 AI (实体增强) ---
+            do {
+                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
+                const angle = Math.random() * Math.PI * 2;
+                
+                const offsetX = Math.floor(range * Math.cos(angle));
+                const offsetZ = Math.floor(range * Math.sin(angle));
+                
+                gridX = playerGridX + offsetX;
+                gridZ = playerGridZ + offsetZ;
+                
+                attempts++;
+            } while (
+                (gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) &&
+                attempts < maxAttempts
+            );
+
+            if (attempts < maxAttempts) {
+                return new THREE.Vector3(
+                    gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize,
+                    WALL_HEIGHT / 2, 
+                    gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize
+                );
+            }
+            return null; 
+        }
+
+        // --- 怪物生成与 AI (不变) ---
         function createMonster() {
             const monsterGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 0.5);
-            // **将颜色从 0x000000 更改为 0x880000 (深红色) 以提高可见性**
-            const monsterMat = new THREE.MeshBasicMaterial({ color: 0x880000 }); 
+            const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); 
             monster = new THREE.Mesh(monsterGeo, monsterMat);
             
-            // 将怪物放置在离玩家较近的位置 (5, 5)
             let gridX = 5, gridZ = 5;
             if (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
                 gridX = 1; gridZ = 5;
@@ -326,12 +429,11 @@
         }
 
         function monsterAI(delta) {
-            // **将距离保存到全局变量**
+            
             monsterDistance = camera.position.distanceTo(monster.position); 
             const chaseAudio = document.getElementById('monster-chase');
 
             if (monsterDistance < CHASE_DISTANCE) {
-                // --- 追逐逻辑 ---
                 
                 if (monsterState !== 'chasing') {
                     monsterState = 'chasing';
@@ -357,7 +459,6 @@
                 }
 
             } else {
-                // --- 巡逻逻辑 ---
                 
                 if (monsterState !== 'wandering') {
                     monsterState = 'wandering';
@@ -400,19 +501,17 @@
             const lookTarget = monsterState === 'chasing' ? camera.position : monsterWanderTarget;
             monster.lookAt(lookTarget.x, monster.position.y, lookTarget.z);
             
-            // 伤害计算使用全局距离
             if (monsterDistance < 2.0) {
                 health -= MONSTER_DAMAGE * delta;
             }
         }
 
 
-        // --- 辅助函数 (更新距离显示) ---
+        // --- 辅助函数 (不变) ---
         function updateHUD() {
             document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
             document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
             
-            // **更新距离显示**
             document.getElementById('distance-text').textContent = 
                 monsterDistance === Infinity ? 'N/A' : `${monsterDistance.toFixed(2)} m`;
 
@@ -474,10 +573,38 @@
             requestAnimationFrame(animate);
 
             const time = performance.now();
+            const timeMs = time; 
             const delta = (time - prevTime) / 1000;
             
             if (controls.isLocked === true && health > 0) {
                 
+                // 1. 追踪玩家移动距离并生成杏仁水
+                const distanceMoved = camera.position.distanceTo(lastCameraPosition);
+                totalDistanceTraveled += distanceMoved;
+                lastCameraPosition.copy(camera.position);
+
+                if (totalDistanceTraveled >= distanceToNextSpawn) {
+                    spawnSingleAlmondWater();
+                    distanceToNextSpawn += ALMOND_SPAWN_INTERVAL;
+                }
+                
+                // 2. 实体传送机制检查
+                if (timeMs - lastTeleportCheckTime > TELEPORT_CHECK_INTERVAL) {
+                    lastTeleportCheckTime = timeMs;
+                    
+                    if (timeMs - lastTeleportTime > TELEPORT_COOLDOWN) {
+                        const newPos = findTeleportSpot();
+                        if (newPos) {
+                            monster.position.copy(newPos);
+                            lastTeleportTime = timeMs;
+                            monsterState = 'wandering'; 
+                            showPickupMessage("实体已传送至附近！");
+                            document.getElementById('monster-chase').pause();
+                        }
+                    }
+                }
+                
+                // 3. 玩家运动与碰撞处理 
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
 
@@ -503,24 +630,18 @@
                 if (moveForward || moveBackward) velocity.z -= direction.z * currentAccel * delta; 
                 if (moveLeft || moveRight) velocity.x -= direction.x * currentAccel * delta;
 
-                
-                // 1. 计算局部空间（相机视角）的移动步长
                 const localStepX = -velocity.x * delta;
                 const localStepZ = -velocity.z * delta;
 
-                // 2. 玩家碰撞检测
                 wallsOnly.length = 0;
                 wallsOnly.push(...wallObjects.filter(obj => obj !== monster));
 
                 if (Math.abs(localStepX) > 0) {
                     rayX.set(localStepX, 0, 0).normalize();
                     rayX.applyQuaternion(camera.quaternion); 
-                    
                     raycaster.ray.origin.copy(camera.position);
                     raycaster.ray.direction.copy(rayX);
-                    
                     const collisionsX = raycaster.intersectObjects(wallsOnly);
-                    
                     if (collisionsX.length > 0 && collisionsX[0].distance < PLAYER_COLLISION_DISTANCE) { 
                         velocity.x = 0; 
                     } else {
@@ -531,12 +652,9 @@
                 if (Math.abs(localStepZ) > 0) {
                     rayZ.set(0, 0, localStepZ).normalize();
                     rayZ.applyQuaternion(camera.quaternion); 
-                    
                     raycaster.ray.origin.copy(camera.position);
                     raycaster.ray.direction.copy(rayZ);
-                    
                     const collisionsZ = raycaster.intersectObjects(wallsOnly);
-                    
                     if (collisionsZ.length > 0 && collisionsZ[0].distance < PLAYER_COLLISION_DISTANCE) {
                         velocity.z = 0; 
                     } else {
@@ -548,7 +666,7 @@
                 
                 monsterAI(delta); 
                 checkAlmondWaterPickup(); 
-                updateHUD(); // 调用更新 HUD 的函数，其中包含距离显示
+                updateHUD();
             }
 
             prevTime = time;
