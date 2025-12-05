@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V13.1 - 音频与安全版</title>
+    <title>The Backrooms V14.0 - 无缝无限地形版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
         #instructions {
@@ -46,7 +46,7 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V13.1 音频与安全版)</h1>
+        <h1>THE BACKROOMS LEVEL 0 (V14.0 无缝无限地形版)</h1>
         <p>按下 **Ctrl + Q** 键切换穿墙模式 (安全措施)。按下 **E** 键显示/隐藏调试信息。</p>
         <p>点击屏幕开始</p>
         <p>W, A, S, D 移动 | SHIFT 奔跑</p>
@@ -66,7 +66,7 @@
 
     <script>
         window.onload = function() {
-            // **恢复音频文件的引用**
+            // 恢复音频文件的引用
             document.getElementById('the-hum').src = 'the_hum.mp3';
             document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
             document.getElementById('monster-chase').src = 'monster_chase.mp3';
@@ -75,7 +75,7 @@
             animate();
         };
 
-        // **所有变量声明提前**
+        // --- 全局变量声明 ---
         let camera, scene, renderer, controls;
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let isShiftDown = false;
@@ -83,8 +83,6 @@
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
         const raycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 1.6);
-        const wallObjects = []; 
-        let almondWaterObjects = []; 
         
         let health = 100;
         let stamina = 100;
@@ -93,7 +91,6 @@
         const MONSTER_DAMAGE = 20;
         
         const PLAYER_COLLISION_DISTANCE = 0.8; 
-
         const WALK_ACCEL = 50.0;
         const RUN_ACCEL = 150.0; 
         const MONSTER_SPEED = 3.0; 
@@ -124,9 +121,24 @@
         let noClip = false;
         let currentFPS = 0;
         let debugHudVisible = false;
+        
+        // --- V14.0 无缝地图相关变量 ---
+        let mapContainer; // 包含所有墙壁、地板等的基础几何体组
+        let mapTiles = []; // 包含 9 个地图块的数组
+        let wallObjects = []; // 碰撞检测只针对这组墙壁
+        let almondWaterObjects = []; 
+        
+        const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
+        const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
+        // 玩家必须保持在 (MAP_WORLD_SIZE / 2) - WRAP_BUFFER 的范围内，否则触发平移
+        const WRAP_BUFFER = 5; 
+        const WRAP_THRESHOLD = HALF_MAP_SIZE - WRAP_BUFFER;
 
-        // --- 随机地图生成 ---
+
+        // --- 地图生成与渲染 (V14.0 核心改动) ---
+
         function generateRandomMap(size, wallDensity = 0.35) { 
+            // ... (地图数据生成逻辑不变)
             const map = Array.from({ length: size }, () => Array(size).fill(0));
             for (let z = 0; z < size; z++) {
                 for (let x = 0; x < size; x++) {
@@ -141,6 +153,75 @@
             return map;
         }
 
+        function createMaze(wallTexture, floorTexture, ceilingTexture) {
+            const wallMat = new THREE.MeshBasicMaterial({ map: wallTexture });
+            const floorMat = new THREE.MeshBasicMaterial({ map: floorTexture });
+            const ceilingMat = new THREE.MeshBasicMaterial({ map: ceilingTexture, side: THREE.DoubleSide });
+            const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffee, side: THREE.DoubleSide });
+
+            mapContainer = new THREE.Group();
+            wallObjects.length = 0; 
+
+            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            const textureRepeatFactor = 1; 
+
+            // 1. 创建基础地图块几何体，并添加到 mapContainer
+            for (let z = 0; z < GRID_SIZE; z++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    
+                    const xPos = x * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const zPos = z * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const tileType = MAP_DATA[z][x]; 
+
+                    const tileGeo = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
+                    
+                    const floor = new THREE.Mesh(tileGeo, floorMat);
+                    floor.rotation.x = -Math.PI / 2;
+                    floor.position.set(xPos, 0, zPos);
+                    floor.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
+                    mapContainer.add(floor);
+
+                    const ceiling = new THREE.Mesh(tileGeo, ceilingMat);
+                    ceiling.rotation.x = Math.PI / 2;
+                    ceiling.position.set(xPos, WALL_HEIGHT, zPos);
+                    ceiling.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
+                    mapContainer.add(ceiling);
+
+                    if (tileType === 0) {
+                        const lightWidth = 0.2;
+                        const lightLength = TILE_SIZE - 2;
+                        const lightGeo = new THREE.BoxGeometry(lightWidth, 0.05, lightLength);
+                        const tubeLight = new THREE.Mesh(lightGeo, lightMat);
+                        tubeLight.position.set(xPos, WALL_HEIGHT - 0.025, zPos);
+                        mapContainer.add(tubeLight);
+                    }
+
+                    if (tileType === 1) {
+                        const wallGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
+                        const wall = new THREE.Mesh(wallGeo, wallMat);
+                        wall.position.set(xPos, WALL_HEIGHT / 2, zPos);
+                        wall.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
+                        mapContainer.add(wall);
+                        wallObjects.push(wall); // 碰撞检测只使用中央地图块的墙
+                    }
+                }
+            }
+
+            // 2. 克隆地图块，形成 3x3 栅格，实现无缝视觉效果
+            mapTiles.length = 0;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    const tile = (i === 0 && j === 0) ? mapContainer : mapContainer.clone();
+                    tile.position.x = i * MAP_WORLD_SIZE;
+                    tile.position.z = j * MAP_WORLD_SIZE;
+                    scene.add(tile);
+                    mapTiles.push(tile);
+                }
+            }
+        }
+
+        // --- 初始化与设置 ---
+
         function init() {
             MAP_DATA = generateRandomMap(GRID_SIZE); 
 
@@ -150,6 +231,8 @@
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.y = PLAYER_HEIGHT;
+            
+            // 确保玩家起始位置在中心地图块的 (1, 1) 附近
             const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
             camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
             camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
@@ -170,16 +253,15 @@
 
             controls = new THREE.PointerLockControls(camera, document.body);
 
+            // ... (事件监听和锁屏逻辑不变)
             const instructions = document.getElementById('instructions');
             instructions.addEventListener('click', function () { 
                 controls.lock(); 
-                // **恢复环境音效播放**
                 document.getElementById('the-hum').play().catch(e => console.log("Audio playback blocked:", e));
             });
             controls.addEventListener('lock', function () { instructions.style.display = 'none'; });
             controls.addEventListener('unlock', function () { 
                 instructions.style.display = 'block'; 
-                // **恢复音频暂停**
                 document.getElementById('the-hum').pause();
                 document.getElementById('monster-chase').pause();
             });
@@ -194,7 +276,6 @@
                     case 'KeyE': 
                         if (controls.isLocked) debugHudVisible = !debugHudVisible; 
                         break;
-                    // **Q 键安全措施：检查 Ctrl 键**
                     case 'KeyQ': 
                         if (controls.isLocked && event.ctrlKey) { 
                             noClip = !noClip;
@@ -216,64 +297,15 @@
             };
             
             document.addEventListener('mousedown', onMouseDown, false); 
-
             document.addEventListener('keydown', onKeyDown);
             document.addEventListener('keyup', onKeyUp);
             window.addEventListener('resize', onWindowResize);
             updateHUD();
         }
 
-        function createMaze(wallTexture, floorTexture, ceilingTexture) {
-            const wallMat = new THREE.MeshBasicMaterial({ map: wallTexture });
-            const floorMat = new THREE.MeshBasicMaterial({ map: floorTexture });
-            const ceilingMat = new THREE.MeshBasicMaterial({ map: ceilingTexture, side: THREE.DoubleSide });
-            const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffee, side: THREE.DoubleSide });
-
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
-            const textureRepeatFactor = 1; 
-
-            for (let z = 0; z < GRID_SIZE; z++) {
-                for (let x = 0; x < GRID_SIZE; x++) {
-                    
-                    const xPos = x * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                    const zPos = z * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                    const tileType = MAP_DATA[z][x]; 
-
-                    const tileGeo = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
-                    
-                    const floor = new THREE.Mesh(tileGeo, floorMat);
-                    floor.rotation.x = -Math.PI / 2;
-                    floor.position.set(xPos, 0, zPos);
-                    floor.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
-                    scene.add(floor);
-
-                    const ceiling = new THREE.Mesh(tileGeo, ceilingMat);
-                    ceiling.rotation.x = Math.PI / 2;
-                    ceiling.position.set(xPos, WALL_HEIGHT, zPos);
-                    ceiling.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
-                    scene.add(ceiling);
-
-                    if (tileType === 0) {
-                        const lightWidth = 0.2;
-                        const lightLength = TILE_SIZE - 2;
-                        const lightGeo = new THREE.BoxGeometry(lightWidth, 0.05, lightLength);
-                        const tubeLight = new THREE.Mesh(lightGeo, lightMat);
-                        tubeLight.position.set(xPos, WALL_HEIGHT - 0.025, zPos);
-                        scene.add(tubeLight);
-                    }
-
-                    if (tileType === 1) {
-                        const wallGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
-                        const wall = new THREE.Mesh(wallGeo, wallMat);
-                        wall.position.set(xPos, WALL_HEIGHT / 2, zPos);
-                        wall.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
-                        scene.add(wall);
-                        wallObjects.push(wall); 
-                    }
-                }
-            }
-        }
+        // ... (其他辅助函数如 onMouseDown, spawnAlmondWater, showPickupMessage, findTeleportSpot 不变) ...
         
+        // --- 怪物和杏仁水生成 (逻辑不变，但在 mapContainer 坐标系内) ---
         function onMouseDown(event) {
             if (controls.isLocked && event.button === 0) { 
                 const pickupRaycaster = new THREE.Raycaster();
@@ -288,10 +320,7 @@
                     stamina = 100;
                     updateHUD();
                     showPickupMessage("杏仁水：生命值和体力已恢复！");
-
-                    // **恢复音频播放**
                     document.getElementById('almond-pickup').play();
-
                     scene.remove(bottle);
                     
                     const index = almondWaterObjects.indexOf(bottle);
@@ -305,13 +334,11 @@
         function spawnAlmondWater(count) {
             const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
             const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
-
             const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
 
             for (let i = 0; i < count; i++) {
-                let x, z, gridX, gridZ;
+                let gridX, gridZ;
                 let attempts = 0;
-
                 do {
                     gridX = Math.floor(Math.random() * GRID_SIZE);
                     gridZ = Math.floor(Math.random() * GRID_SIZE);
@@ -319,8 +346,8 @@
                 } while (MAP_DATA[gridZ][gridX] !== 0 && attempts < 100);
 
                 if (attempts < 100) {
-                    x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                    z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
 
                     const bottle = new THREE.Mesh(bottleGeo, bottleMat);
                     bottle.position.set(x, PLAYER_HEIGHT / 2, z);
@@ -332,11 +359,10 @@
         }
         
         function spawnSingleAlmondWater() {
+            // ... (简化代码，保持生成逻辑不变)
             const maxRangeTiles = 10; 
             const minRangeTiles = 5; 
-            
             const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
-            
             const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
             const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
             
@@ -377,6 +403,7 @@
         }
         
         function showPickupMessage(text) {
+            // ... (消息提示逻辑不变)
             const msgElement = document.getElementById('message');
             msgElement.textContent = text;
             msgElement.style.opacity = 1;
@@ -388,6 +415,7 @@
         }
         
         function findTeleportSpot() {
+            // ... (实体传送点寻找逻辑不变)
             const maxRangeTiles = 5; 
             const minRangeTiles = 2; 
             
@@ -449,13 +477,12 @@
         }
 
         function monsterAI(delta) {
-            
+            // ... (怪物 AI 逻辑不变)
             monsterDistance = camera.position.distanceTo(monster.position); 
             const chaseAudio = document.getElementById('monster-chase'); 
 
             if (monsterDistance < CHASE_DISTANCE) {
                 if (monsterState !== 'chasing') { monsterState = 'chasing'; }
-                // **恢复追逐音效播放**
                 if (chaseAudio && chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
 
                 const targetDir = new THREE.Vector3().subVectors(camera.position, monster.position).normalize();
@@ -474,7 +501,6 @@
 
             } else {
                 if (monsterState !== 'wandering') { monsterState = 'wandering'; }
-                // **恢复追逐音效暂停**
                 if (chaseAudio && !chaseAudio.paused) { chaseAudio.pause(); }
                 
                 if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
@@ -514,9 +540,182 @@
                 health -= MONSTER_DAMAGE * delta;
             }
         }
+        
+        // --- 核心动画循环 ---
+        
+        // **V14.0 新增：无缝平移函数**
+        function handleSeamlessShift(shiftX, shiftZ) {
+            // 1. 平移玩家
+            camera.position.x += shiftX;
+            camera.position.z += shiftZ;
+            lastCameraPosition.copy(camera.position);
+
+            // 2. 平移实体
+            monster.position.x += shiftX;
+            monster.position.z += shiftZ;
+
+            // 3. 平移杏仁水
+            almondWaterObjects.forEach(bottle => {
+                bottle.position.x += shiftX;
+                bottle.position.z += shiftZ;
+            });
+            
+            // 4. 平移整个 3x3 地图网格（保持相对位置不变）
+            mapTiles.forEach(tile => {
+                tile.position.x += shiftX;
+                tile.position.z += shiftZ;
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const timeMs = time; 
+            const delta = (time - prevTime) / 1000;
+            currentFPS = 1 / delta;
+            
+            if (controls.isLocked === true && health > 0) {
+                
+                // ... (移动距离、杏仁水生成和实体传送逻辑不变)
+                const distanceMoved = camera.position.distanceTo(lastCameraPosition);
+                totalDistanceTraveled += distanceMoved;
+                lastCameraPosition.copy(camera.position);
+
+                if (totalDistanceTraveled >= distanceToNextSpawn) {
+                    spawnSingleAlmondWater();
+                    distanceToNextSpawn += ALMOND_SPAWN_INTERVAL;
+                }
+                
+                if (timeMs - lastTeleportCheckTime > TELEPORT_CHECK_INTERVAL) {
+                    lastTeleportCheckTime = timeMs;
+                    
+                    if (timeMs - lastTeleportTime > TELEPORT_COOLDOWN) {
+                        const newPos = findTeleportSpot();
+                        if (newPos) {
+                            monster.position.copy(newPos);
+                            lastTeleportTime = timeMs;
+                            monsterState = 'wandering'; 
+                            showPickupMessage("实体已传送至附近！");
+                            document.getElementById('monster-chase').pause(); 
+                        }
+                    }
+                }
+
+                // 玩家运动设置
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+                
+                let currentAccel = WALK_ACCEL;
+
+                if ((moveForward || moveBackward || moveLeft || moveRight) && isShiftDown && stamina > 0) {
+                    currentAccel = RUN_ACCEL;
+                    stamina -= STAMINA_RUN_COST * delta;
+                } else if (stamina < 100) {
+                    stamina += STAMINA_REGEN * delta;
+                }
+                stamina = Math.min(100, Math.max(0, stamina));
+
+                if (stamina <= 0) {
+                    currentAccel = WALK_ACCEL;
+                    isShiftDown = false;
+                }
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * currentAccel * delta; 
+                if (moveLeft || moveRight) velocity.x -= direction.x * currentAccel * delta;
+
+                const localStepX = -velocity.x * delta;
+                const localStepZ = -velocity.z * delta;
+
+                // **碰撞检测只针对中央地图块的墙体**
+                const rayX = new THREE.Vector3();
+                const rayZ = new THREE.Vector3();
+                const wallsOnly = wallObjects.filter(obj => obj !== monster);
+
+                // 玩家碰撞与移动 (集成 No-Clip 逻辑)
+                if (!noClip) {
+                    let canMoveX = true;
+                    if (Math.abs(localStepX) > 0) {
+                        rayX.set(localStepX, 0, 0).normalize();
+                        rayX.applyQuaternion(camera.quaternion); 
+                        rayX.y = 0; 
+                        rayX.normalize(); 
+
+                        raycaster.ray.origin.copy(camera.position);
+                        raycaster.ray.direction.copy(rayX);
+                        const collisionsX = raycaster.intersectObjects(wallsOnly);
+                        if (collisionsX.length > 0 && collisionsX[0].distance < PLAYER_COLLISION_DISTANCE) { 
+                            velocity.x = 0; 
+                            canMoveX = false;
+                        }
+                    }
+                    
+                    let canMoveZ = true;
+                    if (Math.abs(localStepZ) > 0) {
+                        rayZ.set(0, 0, localStepZ).normalize();
+                        rayZ.applyQuaternion(camera.quaternion); 
+                        rayZ.y = 0; 
+                        rayZ.normalize(); 
+
+                        raycaster.ray.origin.copy(camera.position);
+                        raycaster.ray.direction.copy(rayZ);
+                        const collisionsZ = raycaster.intersectObjects(wallsOnly);
+                        if (collisionsZ.length > 0 && collisionsZ[0].distance < PLAYER_COLLISION_DISTANCE) {
+                            velocity.z = 0; 
+                            canMoveZ = false;
+                        }
+                    }
+                    
+                    if (canMoveX) controls.moveRight(localStepX);
+                    if (canMoveZ) controls.moveForward(localStepZ);
+
+                } else {
+                    controls.moveRight(localStepX); 
+                    controls.moveForward(localStepZ); 
+                }
+
+                camera.position.y = PLAYER_HEIGHT;
+                
+                // **V14.0 核心：无缝平移逻辑**
+                let shiftX = 0;
+                let shiftZ = 0;
+                
+                // 检查 X 轴边界
+                if (camera.position.x > WRAP_THRESHOLD) {
+                    // 玩家向右越过界限，世界向左平移一个地图尺寸
+                    shiftX = -MAP_WORLD_SIZE; 
+                } else if (camera.position.x < -WRAP_THRESHOLD) {
+                    // 玩家向左越过界限，世界向右平移一个地图尺寸
+                    shiftX = MAP_WORLD_SIZE; 
+                }
+                
+                // 检查 Z 轴边界
+                if (camera.position.z > WRAP_THRESHOLD) {
+                    // 玩家向前越过界限，世界向后平移一个地图尺寸
+                    shiftZ = -MAP_WORLD_SIZE; 
+                } else if (camera.position.z < -WRAP_THRESHOLD) {
+                    // 玩家向后越过界限，世界向前平移一个地图尺寸
+                    shiftZ = MAP_WORLD_SIZE; 
+                }
+
+                if (shiftX !== 0 || shiftZ !== 0) {
+                    handleSeamlessShift(shiftX, shiftZ);
+                }
 
 
-        // --- HUD 更新 ---
+                monsterAI(delta); 
+                updateHUD();
+            }
+
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+        
+        // ... (updateHUD 和 createNoiseTexture 不变) ...
         function updateHUD() {
             document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
             document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
@@ -527,7 +726,6 @@
                 controls.unlock();
                 document.getElementById('instructions').innerHTML = '<h1>游戏结束 (你已被捕获)</h1><p>按 F5 重新开始</p>';
                 document.getElementById('instructions').style.display = 'block';
-                // **恢复音频暂停**
                 document.getElementById('the-hum').pause();
                 document.getElementById('monster-chase').pause();
                 return;
@@ -590,166 +788,6 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // --- 动画循环 (核心) ---
-        const rayX = new THREE.Vector3();
-        const rayZ = new THREE.Vector3();
-        const wallsOnly = []; 
-
-        function animate() {
-            requestAnimationFrame(animate);
-
-            const time = performance.now();
-            const timeMs = time; 
-            const delta = (time - prevTime) / 1000;
-            currentFPS = 1 / delta;
-            
-            if (controls.isLocked === true && health > 0) {
-                
-                const distanceMoved = camera.position.distanceTo(lastCameraPosition);
-                totalDistanceTraveled += distanceMoved;
-                lastCameraPosition.copy(camera.position);
-
-                if (totalDistanceTraveled >= distanceToNextSpawn) {
-                    spawnSingleAlmondWater();
-                    distanceToNextSpawn += ALMOND_SPAWN_INTERVAL;
-                }
-                
-                if (timeMs - lastTeleportCheckTime > TELEPORT_CHECK_INTERVAL) {
-                    lastTeleportCheckTime = timeMs;
-                    
-                    if (timeMs - lastTeleportTime > TELEPORT_COOLDOWN) {
-                        const newPos = findTeleportSpot();
-                        if (newPos) {
-                            monster.position.copy(newPos);
-                            lastTeleportTime = timeMs;
-                            monsterState = 'wandering'; 
-                            showPickupMessage("实体已传送至附近！");
-                            document.getElementById('monster-chase').pause(); 
-                        }
-                    }
-                }
-
-                // 玩家运动设置
-                velocity.x -= velocity.x * 10.0 * delta;
-                velocity.z -= velocity.z * 10.0 * delta;
-
-                direction.z = Number(moveForward) - Number(moveBackward);
-                direction.x = Number(moveRight) - Number(moveLeft);
-                direction.normalize();
-                
-                let currentAccel = WALK_ACCEL;
-
-                if ((moveForward || moveBackward || moveLeft || moveRight) && isShiftDown && stamina > 0) {
-                    currentAccel = RUN_ACCEL;
-                    stamina -= STAMINA_RUN_COST * delta;
-                } else if (stamina < 100) {
-                    stamina += STAMINA_REGEN * delta;
-                }
-                stamina = Math.min(100, Math.max(0, stamina));
-
-                if (stamina <= 0) {
-                    currentAccel = WALK_ACCEL;
-                    isShiftDown = false;
-                }
-
-                if (moveForward || moveBackward) velocity.z -= direction.z * currentAccel * delta; 
-                if (moveLeft || moveRight) velocity.x -= direction.x * currentAccel * delta;
-
-                const localStepX = -velocity.x * delta;
-                const localStepZ = -velocity.z * delta;
-
-                wallsOnly.length = 0;
-                wallsOnly.push(...wallObjects.filter(obj => obj !== monster));
-
-
-                // 玩家碰撞与移动 (集成 No-Clip 逻辑)
-                if (!noClip) {
-                    let canMoveX = true;
-                    if (Math.abs(localStepX) > 0) {
-                        rayX.set(localStepX, 0, 0).normalize();
-                        rayX.applyQuaternion(camera.quaternion); 
-                        rayX.y = 0; 
-                        rayX.normalize(); 
-
-                        raycaster.ray.origin.copy(camera.position);
-                        raycaster.ray.direction.copy(rayX);
-                        const collisionsX = raycaster.intersectObjects(wallsOnly);
-                        if (collisionsX.length > 0 && collisionsX[0].distance < PLAYER_COLLISION_DISTANCE) { 
-                            velocity.x = 0; 
-                            canMoveX = false;
-                        }
-                    }
-                    
-                    let canMoveZ = true;
-                    if (Math.abs(localStepZ) > 0) {
-                        rayZ.set(0, 0, localStepZ).normalize();
-                        rayZ.applyQuaternion(camera.quaternion); 
-                        rayZ.y = 0; 
-                        rayZ.normalize(); 
-
-                        raycaster.ray.origin.copy(camera.position);
-                        raycaster.ray.direction.copy(rayZ);
-                        const collisionsZ = raycaster.intersectObjects(wallsOnly);
-                        if (collisionsZ.length > 0 && collisionsZ[0].distance < PLAYER_COLLISION_DISTANCE) {
-                            velocity.z = 0; 
-                            canMoveZ = false;
-                        }
-                    }
-                    
-                    // 应用移动
-                    if (canMoveX) controls.moveRight(localStepX);
-                    if (canMoveZ) controls.moveForward(localStepZ);
-
-                } else {
-                    // 无碰撞模式：直接移动
-                    controls.moveRight(localStepX); 
-                    controls.moveForward(localStepZ); 
-                }
-
-                camera.position.y = PLAYER_HEIGHT;
-                
-                // 地图环绕逻辑
-                const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
-                const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;     
-
-                let shiftX = 0;
-                let shiftZ = 0;
-                
-                if (camera.position.x > HALF_MAP_SIZE) {
-                    shiftX = -MAP_WORLD_SIZE; 
-                } else if (camera.position.x < -HALF_MAP_SIZE) {
-                    shiftX = MAP_WORLD_SIZE; 
-                }
-                
-                if (camera.position.z > HALF_MAP_SIZE) {
-                    shiftZ = -MAP_WORLD_SIZE; 
-                } else if (camera.position.z < -HALF_MAP_SIZE) {
-                    shiftZ = MAP_WORLD_SIZE; 
-                }
-
-                if (shiftX !== 0 || shiftZ !== 0) {
-                    camera.position.x += shiftX;
-                    camera.position.z += shiftZ;
-                    lastCameraPosition.copy(camera.position);
-
-                    monster.position.x += shiftX;
-                    monster.position.z += shiftZ;
-
-                    almondWaterObjects.forEach(bottle => {
-                        bottle.position.x += shiftX;
-                        bottle.position.z += shiftZ;
-                    });
-                }
-
-
-                monsterAI(delta); 
-                updateHUD();
-            }
-
-            prevTime = time;
-            renderer.render(scene, camera);
         }
     </script>
 </body>
