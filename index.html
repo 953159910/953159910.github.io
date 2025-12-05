@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V12.6 - 距离生成资源版</title>
+    <title>The Backrooms V12.9 - 调试与性能版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
         #instructions {
@@ -18,7 +18,8 @@
         }
         #hud {
             position: absolute; top: 10px; left: 10px; z-index: 20;
-            width: 250px;
+            width: 300px;
+            display: none; 
         }
         .bar-container {
             margin-bottom: 5px; background: rgba(0, 0, 0, 0.5); border: 1px solid #fff;
@@ -44,23 +45,26 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (资源无限版)</h1>
-        <p>杏仁水每移动 100 米生成一瓶。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V12.9 调试版)</h1>
+        <p>按下 **Q** 键切换穿墙模式。按下 **E** 键显示/隐藏调试信息。</p>
         <p>点击屏幕开始</p>
-        <p>W, A, S, D 移动 | SHIFT 奔跑 | 拾取杏仁水 (小黄瓶) 可回血</p>
+        <p>W, A, S, D 移动 | SHIFT 奔跑</p>
     </div>
     <div id="crosshair"></div>
     <div id="hud">
         HP: <div id="health-bar" class="bar-container"><div class="bar-fill" style="width: 100%;"></div></div>
         Stamina: <div id="stamina-bar" class="bar-container"><div class="bar-fill" style="width: 100%;"></div></div>
         ---
-        Distance to Entity: <span id="distance-text">N/A</span>
+        <p>Debug Info (E):</p>
+        <p>帧数 (FPS): <span id="fps-text">N/A</span></p>
+        <p>实体距离: <span id="distance-text">N/A</span></p>
+        <p>杏仁水存量: <span id="almond-count-text">N/A</span></p>
+        <p>最近杏仁水距离: <span id="almond-nearest-text">N/A</span></p>
     </div>
     <div id="message"></div>
 
     <script>
         window.onload = function() {
-            // **声音设置指示 (请确保文件存在)：**
             document.getElementById('the-hum').src = 'the_hum.mp3';
             document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
             document.getElementById('monster-chase').src = 'monster_chase.mp3';
@@ -100,33 +104,36 @@
         const CHASE_DISTANCE = 15; 
         const MONSTER_COLLISION_DISTANCE = 0.5;
 
+        // 地图尺寸
         const GRID_SIZE = 30; 
         let MAP_DATA; 
         let monsterDistance = Infinity; 
         
-        // 实体传送计时器和冷却设置
-        const TELEPORT_COOLDOWN = 60000; // 60秒
-        const TELEPORT_CHECK_INTERVAL = 10000; // 10秒
+        const TELEPORT_COOLDOWN = 60000; 
+        const TELEPORT_CHECK_INTERVAL = 10000; 
         let lastTeleportTime = 0;
         let lastTeleportCheckTime = 0;
 
-        // **杏仁水无限生成机制参数**
         let totalDistanceTraveled = 0;
-        const ALMOND_SPAWN_INTERVAL = 100; // 100米生成一瓶
+        const ALMOND_SPAWN_INTERVAL = 100; 
         let distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
         let lastCameraPosition = new THREE.Vector3();
 
+        // **新增：无碰撞模式开关**
+        let noClip = false;
+        // **新增：帧数跟踪**
+        let currentFPS = 0;
 
-        // --- 随机地图生成 (墙体密度 0.35) ---
+        let debugHudVisible = false;
+
+
         function generateRandomMap(size, wallDensity = 0.35) { 
             const map = Array.from({ length: size }, () => Array(size).fill(0));
-            for (let i = 0; i < size; i++) {
-                map[0][i] = 1; map[size - 1][i] = 1;
-                map[i][0] = 1; map[i][size - 1] = 1;
-            }
-            for (let z = 1; z < size - 1; z++) {
-                for (let x = 1; x < size - 1; x++) {
-                    if (Math.random() < wallDensity) {
+            for (let z = 0; z < size; z++) {
+                for (let x = 0; x < size; x++) {
+                    if (x === 0 || x === size - 1 || z === 0 || z === size - 1) {
+                        map[z][x] = 1;
+                    } else if (Math.random() < wallDensity) {
                         map[z][x] = 1;
                     }
                 }
@@ -144,10 +151,10 @@
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.y = PLAYER_HEIGHT;
-            camera.position.x = TILE_SIZE / 2; 
-            camera.position.z = TILE_SIZE / 2; 
+            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
+            camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
             
-            // **初始化上次相机位置**
             lastCameraPosition.copy(camera.position); 
 
             const wallTexture = createNoiseTexture(0xb6a04e); 
@@ -156,7 +163,6 @@
 
             createMaze(wallTexture, floorTexture, ceilingTexture);
             createMonster(); 
-            // **调整初始生成数量为 3 瓶**
             spawnAlmondWater(3); 
 
             renderer = new THREE.WebGLRenderer({ antialias: false }); 
@@ -184,6 +190,16 @@
                     case 'ArrowDown': case 'KeyS': moveBackward = true; break;
                     case 'ArrowRight': case 'KeyD': moveRight = true; break;
                     case 'ShiftLeft': case 'ShiftRight': isShiftDown = true; break;
+                    case 'KeyE': 
+                        if (controls.isLocked) debugHudVisible = !debugHudVisible; 
+                        break;
+                    // **新增：Q 键切换穿墙**
+                    case 'KeyQ': 
+                        if (controls.isLocked) {
+                            noClip = !noClip;
+                            showPickupMessage(noClip ? "无碰撞模式 (No-Clip) 已开启" : "无碰撞模式 (No-Clip) 已关闭");
+                        }
+                        break;
                 }
             };
             const onKeyUp = function (event) {
@@ -195,6 +211,8 @@
                     case 'ShiftLeft': case 'ShiftRight': isShiftDown = false; break;
                 }
             };
+            
+            document.addEventListener('mousedown', onMouseDown, false); 
 
             document.addEventListener('keydown', onKeyDown);
             document.addEventListener('keyup', onKeyUp);
@@ -202,9 +220,7 @@
             updateHUD();
         }
 
-        // --- 地图几何体生成 (不变) ---
         function createMaze(wallTexture, floorTexture, ceilingTexture) {
-            
             const wallMat = new THREE.MeshBasicMaterial({ map: wallTexture });
             const floorMat = new THREE.MeshBasicMaterial({ map: floorTexture });
             const ceilingMat = new THREE.MeshBasicMaterial({ map: ceilingTexture, side: THREE.DoubleSide });
@@ -254,8 +270,34 @@
                 }
             }
         }
+        
+        function onMouseDown(event) {
+            if (controls.isLocked && event.button === 0) { 
+                const pickupRaycaster = new THREE.Raycaster();
+                pickupRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
+                
+                const intersects = pickupRaycaster.intersectObjects(almondWaterObjects);
+                
+                if (intersects.length > 0 && intersects[0].distance < 2.0) { 
+                    const bottle = intersects[0].object;
+                    
+                    health = 100;
+                    stamina = 100;
+                    updateHUD();
+                    showPickupMessage("杏仁水：生命值和体力已恢复！");
 
-        // --- 道具系统 (初始生成) ---
+                    document.getElementById('almond-pickup').play();
+
+                    scene.remove(bottle);
+                    
+                    const index = almondWaterObjects.indexOf(bottle);
+                    if (index > -1) {
+                        almondWaterObjects.splice(index, 1);
+                    }
+                }
+            }
+        }
+        
         function spawnAlmondWater(count) {
             const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
             const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
@@ -285,9 +327,7 @@
             }
         }
         
-        // **新增：单瓶杏仁水生成函数 (基于距离)**
         function spawnSingleAlmondWater() {
-            // Spawn range: 50m to 100m (5 to 10 tiles)
             const maxRangeTiles = 10; 
             const minRangeTiles = 5; 
             
@@ -332,23 +372,6 @@
             }
         }
         
-        function checkAlmondWaterPickup() {
-            for (let i = almondWaterObjects.length - 1; i >= 0; i--) {
-                const bottle = almondWaterObjects[i];
-                if (camera.position.distanceTo(bottle.position) < 1.5) {
-                    health = 100;
-                    stamina = 100;
-                    updateHUD();
-                    showPickupMessage("杏仁水：生命值和体力已恢复！");
-
-                    document.getElementById('almond-pickup').play();
-
-                    scene.remove(bottle);
-                    almondWaterObjects.splice(i, 1);
-                }
-            }
-        }
-
         function showPickupMessage(text) {
             const msgElement = document.getElementById('message');
             msgElement.textContent = text;
@@ -360,7 +383,6 @@
             }, 3000);
         }
         
-        // 查找安全的传送位置 (不变)
         function findTeleportSpot() {
             const maxRangeTiles = 5; 
             const minRangeTiles = 2; 
@@ -400,25 +422,19 @@
             return null; 
         }
 
-        // --- 怪物生成与 AI (不变) ---
         function createMonster() {
             const monsterGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 0.5);
             const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); 
             monster = new THREE.Mesh(monsterGeo, monsterMat);
             
-            let gridX = 5, gridZ = 5;
-            if (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
-                gridX = 1; gridZ = 5;
-                if (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
-                    gridX = 1; gridZ = 1;
-                    while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
-                        gridX = Math.floor(Math.random() * GRID_SIZE);
-                        gridZ = Math.floor(Math.random() * GRID_SIZE);
-                    }
-                }
+            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+
+            let gridX = GRID_SIZE - 5, gridZ = GRID_SIZE - 5;
+            while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
+                gridX = Math.floor(Math.random() * GRID_SIZE);
+                gridZ = Math.floor(Math.random() * GRID_SIZE);
             }
 
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
             monster.position.set(
                 gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, 
                 WALL_HEIGHT / 2, 
@@ -434,15 +450,8 @@
             const chaseAudio = document.getElementById('monster-chase');
 
             if (monsterDistance < CHASE_DISTANCE) {
-                
-                if (monsterState !== 'chasing') {
-                    monsterState = 'chasing';
-                }
-                
-                if (chaseAudio.paused) {
-                    chaseAudio.loop = true; 
-                    chaseAudio.play().catch(e => {}); 
-                }
+                if (monsterState !== 'chasing') { monsterState = 'chasing'; }
+                if (chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
 
                 const targetDir = new THREE.Vector3().subVectors(camera.position, monster.position).normalize();
                 let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * delta);
@@ -459,14 +468,8 @@
                 }
 
             } else {
-                
-                if (monsterState !== 'wandering') {
-                    monsterState = 'wandering';
-                }
-
-                if (!chaseAudio.paused) {
-                    chaseAudio.pause(); 
-                }
+                if (monsterState !== 'wandering') { monsterState = 'wandering'; }
+                if (!chaseAudio.paused) { chaseAudio.pause(); }
                 
                 if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
                     const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
@@ -507,13 +510,12 @@
         }
 
 
-        // --- 辅助函数 (不变) ---
+        // --- HUD 更新 (新增 FPS) ---
         function updateHUD() {
             document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
             document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
             
-            document.getElementById('distance-text').textContent = 
-                monsterDistance === Infinity ? 'N/A' : `${monsterDistance.toFixed(2)} m`;
+            document.getElementById('hud').style.display = debugHudVisible ? 'block' : 'none';
 
             if (health <= 0) {
                 controls.unlock();
@@ -521,6 +523,26 @@
                 document.getElementById('instructions').style.display = 'block';
                 document.getElementById('the-hum').pause();
                 document.getElementById('monster-chase').pause();
+                return;
+            }
+
+            if (debugHudVisible) {
+                let nearestDistance = Infinity;
+                almondWaterObjects.forEach(bottle => {
+                    const dist = camera.position.distanceTo(bottle.position);
+                    if (dist < nearestDistance) {
+                        nearestDistance = dist;
+                    }
+                });
+                
+                // **更新 FPS 文本**
+                document.getElementById('fps-text').textContent = currentFPS.toFixed(0); 
+
+                document.getElementById('distance-text').textContent = 
+                    monsterDistance === Infinity ? 'N/A' : `${monsterDistance.toFixed(2)} m`;
+                document.getElementById('almond-count-text').textContent = almondWaterObjects.length;
+                document.getElementById('almond-nearest-text').textContent = 
+                    nearestDistance === Infinity ? 'N/A' : `${nearestDistance.toFixed(2)} m`;
             }
         }
         
@@ -575,10 +597,12 @@
             const time = performance.now();
             const timeMs = time; 
             const delta = (time - prevTime) / 1000;
+            // **计算 FPS**
+            currentFPS = 1 / delta;
             
             if (controls.isLocked === true && health > 0) {
                 
-                // 1. 追踪玩家移动距离并生成杏仁水
+                // ... 杏仁水生成和实体传送逻辑 (省略不变的代码) ...
                 const distanceMoved = camera.position.distanceTo(lastCameraPosition);
                 totalDistanceTraveled += distanceMoved;
                 lastCameraPosition.copy(camera.position);
@@ -588,7 +612,6 @@
                     distanceToNextSpawn += ALMOND_SPAWN_INTERVAL;
                 }
                 
-                // 2. 实体传送机制检查
                 if (timeMs - lastTeleportCheckTime > TELEPORT_CHECK_INTERVAL) {
                     lastTeleportCheckTime = timeMs;
                     
@@ -603,8 +626,8 @@
                         }
                     }
                 }
-                
-                // 3. 玩家运动与碰撞处理 
+
+                // 玩家运动设置
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
 
@@ -636,36 +659,88 @@
                 wallsOnly.length = 0;
                 wallsOnly.push(...wallObjects.filter(obj => obj !== monster));
 
-                if (Math.abs(localStepX) > 0) {
-                    rayX.set(localStepX, 0, 0).normalize();
-                    rayX.applyQuaternion(camera.quaternion); 
-                    raycaster.ray.origin.copy(camera.position);
-                    raycaster.ray.direction.copy(rayX);
-                    const collisionsX = raycaster.intersectObjects(wallsOnly);
-                    if (collisionsX.length > 0 && collisionsX[0].distance < PLAYER_COLLISION_DISTANCE) { 
-                        velocity.x = 0; 
-                    } else {
-                        controls.moveRight(localStepX); 
-                    }
-                }
 
-                if (Math.abs(localStepZ) > 0) {
-                    rayZ.set(0, 0, localStepZ).normalize();
-                    rayZ.applyQuaternion(camera.quaternion); 
-                    raycaster.ray.origin.copy(camera.position);
-                    raycaster.ray.direction.copy(rayZ);
-                    const collisionsZ = raycaster.intersectObjects(wallsOnly);
-                    if (collisionsZ.length > 0 && collisionsZ[0].distance < PLAYER_COLLISION_DISTANCE) {
-                        velocity.z = 0; 
-                    } else {
-                        controls.moveForward(localStepZ); 
+                // **玩家碰撞与移动 (集成 No-Clip 逻辑)**
+                if (!noClip) {
+                    let canMoveX = true;
+                    if (Math.abs(localStepX) > 0) {
+                        rayX.set(localStepX, 0, 0).normalize();
+                        rayX.applyQuaternion(camera.quaternion); 
+                        rayX.y = 0; 
+                        rayX.normalize(); 
+
+                        raycaster.ray.origin.copy(camera.position);
+                        raycaster.ray.direction.copy(rayX);
+                        const collisionsX = raycaster.intersectObjects(wallsOnly);
+                        if (collisionsX.length > 0 && collisionsX[0].distance < PLAYER_COLLISION_DISTANCE) { 
+                            velocity.x = 0; 
+                            canMoveX = false;
+                        }
                     }
+                    
+                    let canMoveZ = true;
+                    if (Math.abs(localStepZ) > 0) {
+                        rayZ.set(0, 0, localStepZ).normalize();
+                        rayZ.applyQuaternion(camera.quaternion); 
+                        rayZ.y = 0; 
+                        rayZ.normalize(); 
+
+                        raycaster.ray.origin.copy(camera.position);
+                        raycaster.ray.direction.copy(rayZ);
+                        const collisionsZ = raycaster.intersectObjects(wallsOnly);
+                        if (collisionsZ.length > 0 && collisionsZ[0].distance < PLAYER_COLLISION_DISTANCE) {
+                            velocity.z = 0; 
+                            canMoveZ = false;
+                        }
+                    }
+                    
+                    // 应用移动
+                    if (canMoveX) controls.moveRight(localStepX);
+                    if (canMoveZ) controls.moveForward(localStepZ);
+
+                } else {
+                    // 无碰撞模式：直接移动
+                    controls.moveRight(localStepX); 
+                    controls.moveForward(localStepZ); 
                 }
 
                 camera.position.y = PLAYER_HEIGHT;
                 
+                // 地图环绕逻辑 (V12.8 保留)
+                const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
+                const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;     
+
+                let shiftX = 0;
+                let shiftZ = 0;
+                
+                if (camera.position.x > HALF_MAP_SIZE) {
+                    shiftX = -MAP_WORLD_SIZE; 
+                } else if (camera.position.x < -HALF_MAP_SIZE) {
+                    shiftX = MAP_WORLD_SIZE; 
+                }
+                
+                if (camera.position.z > HALF_MAP_SIZE) {
+                    shiftZ = -MAP_WORLD_SIZE; 
+                } else if (camera.position.z < -HALF_MAP_SIZE) {
+                    shiftZ = MAP_WORLD_SIZE; 
+                }
+
+                if (shiftX !== 0 || shiftZ !== 0) {
+                    camera.position.x += shiftX;
+                    camera.position.z += shiftZ;
+                    lastCameraPosition.copy(camera.position);
+
+                    monster.position.x += shiftX;
+                    monster.position.z += shiftZ;
+
+                    almondWaterObjects.forEach(bottle => {
+                        bottle.position.x += shiftX;
+                        bottle.position.z += shiftZ;
+                    });
+                }
+
+
                 monsterAI(delta); 
-                checkAlmondWaterPickup(); 
                 updateHUD();
             }
 
