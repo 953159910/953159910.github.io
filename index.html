@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.11 - Y轴旋转不卡死版</title>
+    <title>The Backrooms V22.12 - 最终旋转稳定版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
         #instructions {
@@ -53,8 +53,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.11 旋转不卡死版)</h1>
-        <p>彻底修复所有旋转问题：水平 $360^\circ$ 不卡死，垂直不翻转。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.12 最终旋转稳定版)</h1>
+        <p>所有旋转问题已修复：水平 $360^\circ$ 自由旋转，且没有 $180^\circ$ 翻转。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑 | **E 开启/关闭 调试信息**</p>
         <p>点击屏幕开始</p>
     </div>
@@ -100,7 +100,7 @@
         const SWAY_MAX_ANGLE = Math.PI * 0.05; 
         const SWAY_SMOOTHING = 0.2; 
         const MAX_PITCH_RADIANS = 1.48; // 约 85 度
-        const TWO_PI = Math.PI * 2; // V22.10 新增常量
+        const TWO_PI = Math.PI * 2; // 
         
         let health = 100;
         let stamina = 100;
@@ -394,15 +394,16 @@
                     canJump = true;
                 }
                 
-                // --- 视角倾斜/旋转逻辑 (V22.11 最终修复) ---
+                // --- 视角倾斜/旋转逻辑 (V22.12 最终修复) ---
                 if (prevCameraRotationY !== undefined) {
                     let deltaY = camera.rotation.y - prevCameraRotationY; 
                     
-                    // V22.10 核心修正：如果 Delta 超过 PI (180度)，说明发生了周期环绕，修正 Delta 值
+                    // 核心修复：修正 Delta 环绕，防止 180度翻转
+                    // 只有当 Delta 超过 180度时，才说明发生了 Three.js 的角度边界跳变，我们进行修正。
                     if (Math.abs(deltaY) > Math.PI) {
                         deltaY -= Math.sign(deltaY) * TWO_PI;
                     }
-                    
+
                     rotationTargetZ = THREE.MathUtils.clamp(
                         deltaY * 10 * SWAY_MAX_ANGLE, 
                         -SWAY_MAX_ANGLE, SWAY_MAX_ANGLE 
@@ -412,15 +413,9 @@
                 // 平滑应用倾斜
                 camera.rotation.z += (rotationTargetZ - camera.rotation.z) * SWAY_SMOOTHING;
                 
-                // **V22.11 核心修复:** 解除水平旋转卡死。
-                // 确保 prevCameraRotationY 始终被钳制在 (-PI, PI] 范围内，
-                // 这样下次计算 Delta 时，即使 camera.rotation.y 积累了多圈，也能正确计算出最短的旋转距离。
-                prevCameraRotationY = camera.rotation.y % TWO_PI;
-                if (prevCameraRotationY > Math.PI) {
-                    prevCameraRotationY -= TWO_PI;
-                } else if (prevCameraRotationY <= -Math.PI) {
-                    prevCameraRotationY += TWO_PI;
-                }
+                // 关键修正：我们只跟踪 camera.rotation.y 的原始累积值，不进行任何钳制或重置，
+                // 彻底解决了 V22.11 引入的旋转卡死问题。
+                prevCameraRotationY = camera.rotation.y;
 
                 // --- 视角倾斜/旋转逻辑 结束 ---
 
