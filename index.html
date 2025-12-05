@@ -2,9 +2,9 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.0 - AABB 物理引擎版</title>
+    <title>The Backrooms V22.1 - 修复启动黑屏版</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
+        body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
         #instructions {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
@@ -36,19 +36,20 @@
             border-radius: 5px; opacity: 0; transition: opacity 0.5s;
         }
     </style>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
     
     <audio id="the-hum" loop></audio>
     <audio id="almond-pickup"></audio>
     <audio id="monster-chase" loop></audio>
-
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.0 AABB 物理版)</h1>
-        <p>物理引擎已重写，彻底修复穿墙 Bug！</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.1 修复版)</h1>
+        <p>物理引擎已重写，防穿墙，修复黑屏。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑</p>
+        <p>点击屏幕开始</p>
     </div>
     <div id="crosshair"></div>
     <div id="hud">
@@ -63,79 +64,172 @@
     <div id="message"></div>
 
     <script>
-        window.onload = function() {
-            document.getElementById('the-hum').src = 'the_hum.mp3';
-            document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
-            document.getElementById('monster-chase').src = 'monster_chase.mp3';
+        // --- 1. 全局变量声明 (必须放在最前面!) ---
+        
+        // 游戏参数
+        const GRID_SIZE = 30; // 地图大小 30x30
+        const TILE_SIZE = 10;
+        const WALL_HEIGHT = 3;
+        const PLAYER_HEIGHT = 1.6;
+        const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
+        const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
 
-            init();
-            animate();
-        };
+        // 运动参数
+        const WALK_ACCEL = 50.0;
+        const RUN_ACCEL = 100.0; 
+        const JUMP_VELOCITY = 6.0; 
+        const GRAVITY = -15.0; 
+        const PLAYER_WIDTH = 1.0; 
+        const PLAYER_DEPTH = 1.0;
 
-        // --- 全局变量声明 ---
+        // 游戏状态
+        let health = 100;
+        let stamina = 100;
+        const STAMINA_RUN_COST = 20; 
+        const STAMINA_REGEN = 15;
+        const MONSTER_DAMAGE = 20;
+
+        // Three.js 核心变量
         let camera, scene, renderer, controls;
-        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-        let isShiftDown = false;
         let prevTime = performance.now();
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
         
-        let health = 100;
-        let stamina = 100;
-        
-        const STAMINA_RUN_COST = 20; 
-        const STAMINA_REGEN = 15;
-        const MONSTER_DAMAGE = 20;
-        
-        const WALK_ACCEL = 50.0;
-        const RUN_ACCEL = 100.0; 
-        const MONSTER_SPEED = 3.0; 
-        const TILE_SIZE = 10;
-        const WALL_HEIGHT = 3;
-        const PLAYER_HEIGHT = 1.6;
-
-        // **V22.0 新增：AABB 碰撞相关变量**
-        const PLAYER_WIDTH = 1.0; // 玩家碰撞箱宽度 (1米)
-        const PLAYER_DEPTH = 1.0; // 玩家碰撞箱深度 (1米)
-        let wallBoundingBoxes = []; // 存储所有墙壁的 Box3 对象
-        let playerBox = new THREE.Box3(); // 玩家的实时碰撞箱
-
-        let canJump = false; 
-        const JUMP_VELOCITY = 6.0; 
-        const GRAVITY = -15.0; 
-
+        // 碰撞与实体
+        let wallBoundingBoxes = []; // 物理碰撞箱
+        let playerBox = new THREE.Box3(); 
+        let wallObjects = []; 
+        let almondWaterObjects = []; 
         let monster;
         let monsterState = 'wandering'; 
         let monsterWanderTarget = new THREE.Vector3();
+        let monsterDistance = Infinity;
+        
+        // 怪物参数
+        const MONSTER_SPEED = 3.0; 
         const CHASE_DISTANCE = 15; 
         const MONSTER_COLLISION_DISTANCE = 0.5;
-
-        const GRID_SIZE = 30; 
-        let MAP_DATA; 
-        let monsterDistance = Infinity; 
         
+        // 传送与生成
         const TELEPORT_COOLDOWN = 60000; 
         const TELEPORT_CHECK_INTERVAL = 10000; 
         let lastTeleportTime = 0;
         let lastTeleportCheckTime = 0;
-
         let totalDistanceTraveled = 0;
         const ALMOND_SPAWN_INTERVAL = 100; 
         let distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
         let lastCameraPosition = new THREE.Vector3();
 
+        // 交互与调试
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let isShiftDown = false;
+        let canJump = false;
         let noClip = false;
         let currentFPS = 0;
         let debugHudVisible = false;
-        
-        let wallObjects = []; // 仅用于怪物射线检测
-        let almondWaterObjects = []; 
+        let MAP_DATA;
 
-        const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
-        const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
+        // --- 2. 核心函数定义 ---
 
+        // 页面加载入口
+        window.onload = function() {
+            // 尝试设置音频路径（如果文件不存在，控制台会报404但不会卡死游戏）
+            try {
+                document.getElementById('the-hum').src = 'the_hum.mp3';
+                document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
+                document.getElementById('monster-chase').src = 'monster_chase.mp3';
+            } catch(e) { console.log("Audio setup skipped"); }
 
-        // --- 地图生成 ---
+            init();
+            animate();
+        };
+
+        function init() {
+            MAP_DATA = generateRandomMap(GRID_SIZE); 
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x998b4b); 
+            scene.fog = new THREE.FogExp2(0x998b4b, 0.08); // 浓雾
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = PLAYER_HEIGHT;
+            
+            // 玩家出生点
+            const halfFinalSize = HALF_MAP_SIZE;
+            camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
+            camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
+            lastCameraPosition.copy(camera.position); 
+
+            // 纹理与材质
+            const wallTexture = createNoiseTexture(0xb6a04e); 
+            const floorTexture = createNoiseTexture(0x91815f); 
+            const ceilingTexture = createNoiseTexture(0xaaaaaa); 
+
+            createMaze(wallTexture, floorTexture, ceilingTexture);
+            createMonster(); 
+            spawnAlmondWater(3); 
+
+            renderer = new THREE.WebGLRenderer({ antialias: false }); 
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            controls = new THREE.PointerLockControls(camera, document.body);
+
+            // 事件监听
+            setupInputs();
+            window.addEventListener('resize', onWindowResize);
+            
+            // 确保HUD在初始化时更新一次
+            if(typeof updateHUD === 'function') updateHUD();
+        }
+
+        function setupInputs() {
+            const instructions = document.getElementById('instructions');
+            instructions.addEventListener('click', function () { 
+                controls.lock(); 
+                document.getElementById('the-hum').play().catch(e => {});
+            });
+            controls.addEventListener('lock', function () { instructions.style.display = 'none'; });
+            controls.addEventListener('unlock', function () { 
+                instructions.style.display = 'block'; 
+                document.getElementById('the-hum').pause();
+                document.getElementById('monster-chase').pause();
+            });
+
+            document.addEventListener('keydown', (event) => {
+                switch (event.code) {
+                    case 'ArrowUp': case 'KeyW': moveForward = true; break;
+                    case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+                    case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+                    case 'ArrowRight': case 'KeyD': moveRight = true; break;
+                    case 'ShiftLeft': case 'ShiftRight': isShiftDown = true; break;
+                    case 'KeyE': if (controls.isLocked) debugHudVisible = !debugHudVisible; break;
+                    case 'KeyQ': 
+                        if (controls.isLocked && event.ctrlKey) { 
+                            noClip = !noClip;
+                            showPickupMessage(noClip ? "无碰撞模式 (No-Clip) 已开启" : "无碰撞模式 (No-Clip) 已关闭");
+                        }
+                        break;
+                    case 'Space': 
+                        if (canJump) { velocity.y += JUMP_VELOCITY; canJump = false; } 
+                        break;
+                }
+            });
+
+            document.addEventListener('keyup', (event) => {
+                switch (event.code) {
+                    case 'ArrowUp': case 'KeyW': moveForward = false; break;
+                    case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+                    case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+                    case 'ArrowRight': case 'KeyD': moveRight = false; break;
+                    case 'ShiftLeft': case 'ShiftRight': isShiftDown = false; break;
+                }
+            });
+            
+            document.addEventListener('mousedown', onMouseDown, false);
+        }
+
+        // --- 逻辑函数 ---
 
         function generateRandomMap(size, wallDensity = 0.35) { 
             const map = Array.from({ length: size }, () => Array(size).fill(0));
@@ -159,30 +253,25 @@
             const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffee, side: THREE.DoubleSide });
 
             wallObjects.length = 0; 
-            wallBoundingBoxes.length = 0; // 清空碰撞箱数组
+            wallBoundingBoxes.length = 0;
 
             const halfFinalSize = HALF_MAP_SIZE;
-            const textureRepeatFactor = 1; 
 
             for (let z = 0; z < GRID_SIZE; z++) {
                 for (let x = 0; x < GRID_SIZE; x++) {
-                    
                     const xPos = x * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
                     const zPos = z * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
                     const tileType = MAP_DATA[z][x]; 
 
                     const tileGeo = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
-                    
                     const floor = new THREE.Mesh(tileGeo, floorMat);
                     floor.rotation.x = -Math.PI / 2;
                     floor.position.set(xPos, 0, zPos);
-                    floor.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
                     scene.add(floor);
 
                     const ceiling = new THREE.Mesh(tileGeo, ceilingMat);
                     ceiling.rotation.x = Math.PI / 2;
                     ceiling.position.set(xPos, WALL_HEIGHT, zPos);
-                    ceiling.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
                     scene.add(ceiling);
 
                     if (tileType === 0) {
@@ -198,11 +287,10 @@
                         const wallGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
                         const wall = new THREE.Mesh(wallGeo, wallMat);
                         wall.position.set(xPos, WALL_HEIGHT / 2, zPos);
-                        wall.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
                         scene.add(wall);
-                        wallObjects.push(wall); // 用于怪物AI
+                        wallObjects.push(wall);
                         
-                        // **V22.0: 生成并存储墙壁的 Box3 碰撞箱**
+                        // 物理包围盒
                         const box = new THREE.Box3().setFromObject(wall);
                         wallBoundingBoxes.push(box);
                     }
@@ -210,324 +298,7 @@
             }
         }
 
-        // --- 初始化与设置 ---
-
-        function init() {
-            MAP_DATA = generateRandomMap(GRID_SIZE); 
-
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x998b4b); 
-            scene.fog = new THREE.FogExp2(0x998b4b, 0.08); 
-
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.y = PLAYER_HEIGHT;
-            
-            const halfFinalSize = HALF_MAP_SIZE;
-            camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
-            camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
-            
-            lastCameraPosition.copy(camera.position); 
-
-            const wallTexture = createNoiseTexture(0xb6a04e); 
-            const floorTexture = createNoiseTexture(0x91815f); 
-            const ceilingTexture = createNoiseTexture(0xaaaaaa); 
-
-            createMaze(wallTexture, floorTexture, ceilingTexture);
-            createMonster(); 
-            spawnAlmondWater(3); 
-
-            renderer = new THREE.WebGLRenderer({ antialias: false }); 
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
-
-            controls = new THREE.PointerLockControls(camera, document.body);
-
-            const instructions = document.getElementById('instructions');
-            instructions.addEventListener('click', function () { 
-                controls.lock(); 
-                document.getElementById('the-hum').play().catch(e => console.log("Audio playback blocked:", e));
-            });
-            controls.addEventListener('lock', function () { instructions.style.display = 'none'; });
-            controls.addEventListener('unlock', function () { 
-                instructions.style.display = 'block'; 
-                document.getElementById('the-hum').pause();
-                document.getElementById('monster-chase').pause();
-            });
-
-            const onKeyDown = function (event) {
-                switch (event.code) {
-                    case 'ArrowUp': case 'KeyW': moveForward = true; break;
-                    case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
-                    case 'ArrowDown': case 'KeyS': moveBackward = true; break;
-                    case 'ArrowRight': case 'KeyD': moveRight = true; break;
-                    case 'ShiftLeft': case 'ShiftRight': isShiftDown = true; break;
-                    case 'KeyE': 
-                        if (controls.isLocked) debugHudVisible = !debugHudVisible; 
-                        break;
-                    case 'KeyQ': 
-                        if (controls.isLocked && event.ctrlKey) { 
-                            noClip = !noClip;
-                            showPickupMessage(noClip ? "无碰撞模式 (No-Clip) 已开启" : "无碰撞模式 (No-Clip) 已关闭");
-                        } else if (controls.isLocked && !event.ctrlKey) {
-                            showPickupMessage("请同时按下 Ctrl + Q 开启调试模式。");
-                        }
-                        break;
-                    case 'Space': 
-                        if (canJump === true) { 
-                            velocity.y += JUMP_VELOCITY;
-                            canJump = false;
-                        } 
-                        break;
-                }
-            };
-            const onKeyUp = function (event) {
-                switch (event.code) {
-                    case 'ArrowUp': case 'KeyW': moveForward = false; break;
-                    case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
-                    case 'ArrowDown': case 'KeyS': moveBackward = false; break;
-                    case 'ArrowRight': case 'KeyD': moveRight = false; break;
-                    case 'ShiftLeft': case 'ShiftRight': isShiftDown = false; break;
-                }
-            };
-            
-            document.addEventListener('mousedown', onMouseDown, false); 
-            document.addEventListener('keydown', onKeyDown);
-            document.addEventListener('keyup', onKeyUp);
-            window.addEventListener('resize', onWindowResize);
-            updateHUD();
-        }
-
-        // --- 游戏逻辑函数 ---
-
-        function onMouseDown(event) {
-            if (controls.isLocked && event.button === 0) { 
-                const pickupRaycaster = new THREE.Raycaster();
-                pickupRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
-                
-                const intersects = pickupRaycaster.intersectObjects(almondWaterObjects);
-                
-                if (intersects.length > 0 && intersects[0].distance < 2.0) { 
-                    const bottle = intersects[0].object;
-                    health = 100;
-                    stamina = 100;
-                    updateHUD();
-                    showPickupMessage("杏仁水：生命值和体力已恢复！");
-                    document.getElementById('almond-pickup').play();
-                    scene.remove(bottle);
-                    const index = almondWaterObjects.indexOf(bottle);
-                    if (index > -1) {
-                        almondWaterObjects.splice(index, 1);
-                    }
-                }
-            }
-        }
-        
-        function spawnAlmondWater(count) {
-            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
-            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
-            const halfFinalSize = HALF_MAP_SIZE;
-
-            for (let i = 0; i < count; i++) {
-                let gridX, gridZ;
-                let attempts = 0;
-                do {
-                    gridX = Math.floor(Math.random() * GRID_SIZE);
-                    gridZ = Math.floor(Math.random() * GRID_SIZE);
-                    attempts++;
-                } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 100);
-
-                if (attempts < 100) {
-                    const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                    const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-
-                    const bottle = new THREE.Mesh(bottleGeo, bottleMat);
-                    bottle.position.set(x, PLAYER_HEIGHT / 2, z);
-                    bottle.isAlmondWater = true; 
-                    scene.add(bottle);
-                    almondWaterObjects.push(bottle);
-                }
-            }
-        }
-        
-        function spawnSingleAlmondWater() {
-            const maxRangeTiles = 10; 
-            const minRangeTiles = 5; 
-            const halfFinalSize = HALF_MAP_SIZE;
-            
-            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
-            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
-            
-            let gridX, gridZ;
-            let attempts = 0;
-            const maxAttempts = 50;
-
-            do {
-                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
-                const angle = Math.random() * Math.PI * 2;
-                
-                const offsetX = Math.floor(range * Math.cos(angle));
-                const offsetZ = Math.floor(range * Math.sin(angle));
-                
-                gridX = playerGridX + offsetX;
-                gridZ = playerGridZ + offsetZ;
-                
-                attempts++;
-            } while (
-                (gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) &&
-                attempts < maxAttempts
-            );
-
-            if (attempts < maxAttempts) {
-                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-
-                const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
-                const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
-                const bottle = new THREE.Mesh(bottleGeo, bottleMat);
-
-                bottle.position.set(x, PLAYER_HEIGHT / 2, z);
-                bottle.isAlmondWater = true; 
-                scene.add(bottle);
-                almondWaterObjects.push(bottle);
-                showPickupMessage("杏仁水已在附近生成！");
-            }
-        }
-        
-        function showPickupMessage(text) {
-            const msgElement = document.getElementById('message');
-            msgElement.textContent = text;
-            msgElement.style.opacity = 1;
-            
-            clearTimeout(msgElement.timeout);
-            msgElement.timeout = setTimeout(() => {
-                msgElement.style.opacity = 0;
-            }, 3000);
-        }
-        
-        function findTeleportSpot() {
-            const maxRangeTiles = 5; 
-            const minRangeTiles = 2; 
-            const halfFinalSize = HALF_MAP_SIZE;
-            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
-            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
-            
-            let gridX, gridZ;
-            let attempts = 0;
-            const maxAttempts = 50;
-
-            do {
-                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
-                const angle = Math.random() * Math.PI * 2;
-                const offsetX = Math.floor(range * Math.cos(angle));
-                const offsetZ = Math.floor(range * Math.sin(angle));
-                gridX = playerGridX + offsetX;
-                gridZ = playerGridZ + offsetZ;
-                attempts++;
-            } while (
-                (gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) &&
-                attempts < maxAttempts
-            );
-
-            if (attempts < maxAttempts) {
-                return new THREE.Vector3(
-                    gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize,
-                    WALL_HEIGHT / 2, 
-                    gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize
-                );
-            }
-            return null; 
-        }
-
-        function createMonster() {
-            const monsterGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 0.5);
-            const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); 
-            monster = new THREE.Mesh(monsterGeo, monsterMat);
-            
-            const halfFinalSize = HALF_MAP_SIZE;
-
-            let gridX = GRID_SIZE - 5, gridZ = GRID_SIZE - 5;
-            while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
-                gridX = Math.floor(Math.random() * GRID_SIZE);
-                gridZ = Math.floor(Math.random() * GRID_SIZE);
-            }
-
-            monster.position.set(
-                gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, 
-                WALL_HEIGHT / 2, 
-                gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize
-            );
-            scene.add(monster);
-            wallObjects.push(monster); 
-            // 怪物不加入 wallBoundingBoxes，它用自己的 AI 逻辑避障
-        }
-
-        function monsterAI(delta) {
-            monsterDistance = camera.position.distanceTo(monster.position); 
-            const chaseAudio = document.getElementById('monster-chase'); 
-
-            if (monsterDistance < CHASE_DISTANCE) {
-                if (monsterState !== 'chasing') { monsterState = 'chasing'; }
-                if (chaseAudio && chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
-
-                const targetDir = new THREE.Vector3().subVectors(camera.position, monster.position).normalize();
-                let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * delta);
-                monsterStep.y = 0; 
-                
-                const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
-                const wallsOnly = wallObjects.filter(obj => obj !== monster); 
-                const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
-
-                if (monsterCollisions.length === 0) { 
-                    monster.position.add(monsterStep);
-                } else {
-                    monster.rotation.y += (Math.random() * 2 - 1) * Math.PI / 4;
-                }
-
-            } else {
-                if (monsterState !== 'wandering') { monsterState = 'wandering'; }
-                if (chaseAudio && !chaseAudio.paused) { chaseAudio.pause(); }
-                
-                if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
-                    const halfFinalSize = HALF_MAP_SIZE;
-                    let gridX, gridZ;
-                    do {
-                        gridX = Math.floor(Math.random() * GRID_SIZE);
-                        gridZ = Math.floor(Math.random() * GRID_SIZE);
-                    } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0);
-
-                    monsterWanderTarget.set(
-                        gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize,
-                        WALL_HEIGHT / 2,
-                        gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize
-                    );
-                }
-
-                const targetDir = new THREE.Vector3().subVectors(monsterWanderTarget, monster.position).normalize();
-                let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * 0.5 * delta); 
-                monsterStep.y = 0; 
-
-                const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
-                const wallsOnly = wallObjects.filter(obj => obj !== monster); 
-                const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
-
-                if (monsterCollisions.length === 0) { 
-                    monster.position.add(monsterStep);
-                } else {
-                    monsterWanderTarget.set(0, 0, 0); 
-                }
-            }
-            
-            const lookTarget = monsterState === 'chasing' ? camera.position : monsterWanderTarget;
-            monster.lookAt(lookTarget.x, monster.position.y, lookTarget.z);
-            
-            if (monsterDistance < 2.0) {
-                health -= MONSTER_DAMAGE * delta;
-            }
-        }
-        
-        // --- 核心动画循环 (V22.0 重写) ---
-
-        // 辅助函数：检查 Box3 是否与任何墙壁 Box3 相交
+        // AABB 碰撞检测核心
         function checkCollision(box) {
             for (let i = 0; i < wallBoundingBoxes.length; i++) {
                 if (box.intersectsBox(wallBoundingBoxes[i])) {
@@ -547,6 +318,7 @@
             
             if (controls.isLocked === true && health > 0) {
                 
+                // 距离计算与道具生成
                 const distanceMoved = camera.position.distanceTo(lastCameraPosition);
                 totalDistanceTraveled += distanceMoved;
                 lastCameraPosition.copy(camera.position);
@@ -556,6 +328,7 @@
                     distanceToNextSpawn += ALMOND_SPAWN_INTERVAL;
                 }
                 
+                // 怪物传送逻辑
                 if (timeMs - lastTeleportCheckTime > TELEPORT_CHECK_INTERVAL) {
                     lastTeleportCheckTime = timeMs;
                     if (timeMs - lastTeleportTime > TELEPORT_COOLDOWN) {
@@ -570,7 +343,7 @@
                     }
                 }
 
-                // 玩家运动设置
+                // 物理运动计算
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
                 velocity.y += GRAVITY * delta; 
@@ -580,7 +353,6 @@
                 direction.normalize();
                 
                 let currentAccel = WALK_ACCEL;
-
                 if ((moveForward || moveBackward || moveLeft || moveRight) && isShiftDown && stamina > 0) {
                     currentAccel = RUN_ACCEL;
                     stamina -= STAMINA_RUN_COST * delta; 
@@ -588,11 +360,7 @@
                     stamina += STAMINA_REGEN * delta;
                 }
                 stamina = Math.min(100, Math.max(0, stamina));
-
-                if (stamina <= 0) {
-                    currentAccel = WALK_ACCEL;
-                    isShiftDown = false;
-                }
+                if (stamina <= 0) { currentAccel = WALK_ACCEL; isShiftDown = false; }
 
                 if (moveForward || moveBackward) velocity.z -= direction.z * currentAccel * delta; 
                 if (moveLeft || moveRight) velocity.x -= direction.x * currentAccel * delta;
@@ -600,42 +368,33 @@
                 const localStepX = -velocity.x * delta;
                 const localStepZ = -velocity.z * delta;
 
-                // --- V22.0: AABB 碰撞检测核心逻辑 ---
+                // --- 物理引擎移动 ---
                 if (!noClip) {
-                    // 1. 尝试 X 轴移动
+                    // X 轴尝试
                     if (Math.abs(localStepX) > 0) {
-                        controls.moveRight(localStepX); // 临时移动
-                        // 更新玩家碰撞箱
+                        controls.moveRight(localStepX);
                         playerBox.setFromCenterAndSize(camera.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
-                        
                         if (checkCollision(playerBox)) {
-                            // 发生碰撞，撤销 X 轴移动，并清除速度
-                            controls.moveRight(-localStepX);
+                            controls.moveRight(-localStepX); // 撞墙回退
                             velocity.x = 0;
                         }
                     }
-
-                    // 2. 尝试 Z 轴移动
+                    // Z 轴尝试
                     if (Math.abs(localStepZ) > 0) {
-                        controls.moveForward(localStepZ); // 临时移动
+                        controls.moveForward(localStepZ);
                         playerBox.setFromCenterAndSize(camera.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
-                        
                         if (checkCollision(playerBox)) {
-                            // 发生碰撞，撤销 Z 轴移动，并清除速度
-                            controls.moveForward(-localStepZ);
+                            controls.moveForward(-localStepZ); // 撞墙回退
                             velocity.z = 0;
                         }
                     }
                 } else {
-                    // No-Clip 模式
                     controls.moveRight(localStepX); 
                     controls.moveForward(localStepZ); 
                 }
                 
-                // 应用垂直移动
+                // 垂直移动
                 camera.position.y += velocity.y * delta;
-
-                // 地面检测
                 if (camera.position.y <= PLAYER_HEIGHT) {
                     velocity.y = 0;
                     camera.position.y = PLAYER_HEIGHT;
@@ -649,39 +408,183 @@
             prevTime = time;
             renderer.render(scene, camera);
         }
-        
+
+        // --- 辅助功能 ---
+
+        function onMouseDown(event) {
+            if (controls.isLocked && event.button === 0) { 
+                const pickupRaycaster = new THREE.Raycaster();
+                pickupRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
+                const intersects = pickupRaycaster.intersectObjects(almondWaterObjects);
+                if (intersects.length > 0 && intersects[0].distance < 2.0) { 
+                    const bottle = intersects[0].object;
+                    health = 100; stamina = 100; updateHUD();
+                    showPickupMessage("杏仁水：生命值和体力已恢复！");
+                    document.getElementById('almond-pickup').play().catch(e=>{});
+                    scene.remove(bottle);
+                    const index = almondWaterObjects.indexOf(bottle);
+                    if (index > -1) almondWaterObjects.splice(index, 1);
+                }
+            }
+        }
+
+        function createMonster() {
+            const monsterGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 0.5);
+            const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); 
+            monster = new THREE.Mesh(monsterGeo, monsterMat);
+            const halfFinalSize = HALF_MAP_SIZE;
+            let gridX = GRID_SIZE - 5, gridZ = GRID_SIZE - 5;
+            while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
+                gridX = Math.floor(Math.random() * GRID_SIZE);
+                gridZ = Math.floor(Math.random() * GRID_SIZE);
+            }
+            monster.position.set(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+            scene.add(monster);
+            wallObjects.push(monster); 
+        }
+
+        function monsterAI(delta) {
+            monsterDistance = camera.position.distanceTo(monster.position); 
+            const chaseAudio = document.getElementById('monster-chase'); 
+            if (monsterDistance < CHASE_DISTANCE) {
+                if (monsterState !== 'chasing') monsterState = 'chasing'; 
+                if (chaseAudio && chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
+                const targetDir = new THREE.Vector3().subVectors(camera.position, monster.position).normalize();
+                let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * delta);
+                monsterStep.y = 0; 
+                // 怪物简单的射线防撞（为了性能保留射线）
+                const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
+                const wallsOnly = wallObjects.filter(obj => obj !== monster); 
+                const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
+                if (monsterCollisions.length === 0) monster.position.add(monsterStep);
+                else monster.rotation.y += (Math.random() * 2 - 1) * Math.PI / 4;
+            } else {
+                if (monsterState !== 'wandering') monsterState = 'wandering'; 
+                if (chaseAudio && !chaseAudio.paused) chaseAudio.pause(); 
+                if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
+                    const halfFinalSize = HALF_MAP_SIZE;
+                    let gridX, gridZ;
+                    do { gridX = Math.floor(Math.random() * GRID_SIZE); gridZ = Math.floor(Math.random() * GRID_SIZE);
+                    } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0);
+                    monsterWanderTarget.set(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+                }
+                const targetDir = new THREE.Vector3().subVectors(monsterWanderTarget, monster.position).normalize();
+                let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * 0.5 * delta); 
+                monsterStep.y = 0; 
+                const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
+                const wallsOnly = wallObjects.filter(obj => obj !== monster); 
+                const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
+                if (monsterCollisions.length === 0) monster.position.add(monsterStep);
+                else monsterWanderTarget.set(0, 0, 0); 
+            }
+            const lookTarget = monsterState === 'chasing' ? camera.position : monsterWanderTarget;
+            monster.lookAt(lookTarget.x, monster.position.y, lookTarget.z);
+            if (monsterDistance < 2.0) health -= MONSTER_DAMAGE * delta;
+        }
+
+        function updateHUD() {
+            if (!document.getElementById('health-bar')) return;
+            document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
+            document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
+            document.getElementById('hud').style.display = debugHudVisible ? 'block' : 'none';
+            if (health <= 0) {
+                controls.unlock();
+                document.getElementById('instructions').innerHTML = '<h1>游戏结束 (你已被捕获)</h1><p>按 F5 重新开始</p>';
+                document.getElementById('instructions').style.display = 'block';
+                document.getElementById('the-hum').pause();
+                document.getElementById('monster-chase').pause();
+                return;
+            }
+            if (debugHudVisible) {
+                let nearestDistance = Infinity;
+                almondWaterObjects.forEach(bottle => {
+                    const dist = camera.position.distanceTo(bottle.position);
+                    if (dist < nearestDistance) nearestDistance = dist;
+                });
+                document.getElementById('fps-text').textContent = currentFPS.toFixed(0); 
+                document.getElementById('distance-text').textContent = monsterDistance === Infinity ? 'N/A' : `${monsterDistance.toFixed(2)} m`;
+                document.getElementById('almond-count-text').textContent = almondWaterObjects.length;
+            }
+        }
+
+        function spawnAlmondWater(count) {
+            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
+            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
+            const halfFinalSize = HALF_MAP_SIZE;
+            for (let i = 0; i < count; i++) {
+                let gridX, gridZ, attempts = 0;
+                do { gridX = Math.floor(Math.random() * GRID_SIZE); gridZ = Math.floor(Math.random() * GRID_SIZE); attempts++;
+                } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 100);
+                if (attempts < 100) {
+                    const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const bottle = new THREE.Mesh(bottleGeo, bottleMat);
+                    bottle.position.set(x, PLAYER_HEIGHT / 2, z);
+                    bottle.isAlmondWater = true; 
+                    scene.add(bottle);
+                    almondWaterObjects.push(bottle);
+                }
+            }
+        }
+
+        function spawnSingleAlmondWater() {
+            const maxRangeTiles = 10, minRangeTiles = 5; 
+            const halfFinalSize = HALF_MAP_SIZE;
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
+            let gridX, gridZ, attempts = 0;
+            do {
+                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
+                const angle = Math.random() * Math.PI * 2;
+                gridX = playerGridX + Math.floor(range * Math.cos(angle));
+                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
+                attempts++;
+            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 50);
+            if (attempts < 50) {
+                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16), new THREE.MeshBasicMaterial({ color: 0xfafa00 }));
+                bottle.position.set(x, PLAYER_HEIGHT / 2, z);
+                bottle.isAlmondWater = true; 
+                scene.add(bottle);
+                almondWaterObjects.push(bottle);
+                showPickupMessage("杏仁水已在附近生成！");
+            }
+        }
+
+        function findTeleportSpot() {
+            const maxRangeTiles = 5, minRangeTiles = 2; 
+            const halfFinalSize = HALF_MAP_SIZE;
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
+            let gridX, gridZ, attempts = 0;
+            do {
+                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
+                const angle = Math.random() * Math.PI * 2;
+                gridX = playerGridX + Math.floor(range * Math.cos(angle));
+                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
+                attempts++;
+            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 50);
+            if (attempts < 50) return new THREE.Vector3(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+            return null; 
+        }
+
+        function showPickupMessage(text) {
+            const msgElement = document.getElementById('message');
+            msgElement.textContent = text;
+            msgElement.style.opacity = 1;
+            clearTimeout(msgElement.timeout);
+            msgElement.timeout = setTimeout(() => { msgElement.style.opacity = 0; }, 3000);
+        }
+
         function createNoiseTexture(colorHex) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 256; canvas.height = 256; 
-            const ctx = canvas.getContext('2d');
-            
-            ctx.fillStyle = '#' + new THREE.Color(colorHex).getHexString();
-            ctx.fillRect(0, 0, 256, 256);
-
-            ctx.strokeStyle = `rgba(0, 0, 0, 0.15)`;
-            ctx.lineWidth = 0.5;
-            const step = 256 / 8;
-
-            for (let i = 1; i < 8; i++) {
-                ctx.beginPath();
-                ctx.moveTo(i * step, 0);
-                ctx.lineTo(i * step, 256);
-                ctx.stroke();
-
-                ctx.beginPath();
-                ctx.moveTo(0, i * step);
-                ctx.lineTo(256, i * step);
-                ctx.stroke();
-            }
-            
-            const imageData = ctx.getImageData(0, 0, 256, 256);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                const val = Math.floor(Math.random() * 30); 
-                data[i] -= val; data[i+1] -= val; data[i+2] -= val;
-            }
-            ctx.putImageData(imageData, 0, 0);
-            return new THREE.CanvasTexture(canvas);
+            const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256; 
+            const ctx = canvas.getContext('2d'); ctx.fillStyle = '#' + new THREE.Color(colorHex).getHexString();
+            ctx.fillRect(0, 0, 256, 256); ctx.strokeStyle = `rgba(0, 0, 0, 0.15)`; ctx.lineWidth = 0.5;
+            for (let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(i * 32, 0); ctx.lineTo(i * 32, 256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i * 32); ctx.lineTo(256, i * 32); ctx.stroke(); }
+            const imgData = ctx.getImageData(0, 0, 256, 256);
+            for (let i = 0; i < imgData.data.length; i += 4) { const val = Math.floor(Math.random() * 30); imgData.data[i] -= val; imgData.data[i+1] -= val; imgData.data[i+2] -= val; }
+            ctx.putImageData(imgData, 0, 0); return new THREE.CanvasTexture(canvas);
         }
 
         function onWindowResize() {
