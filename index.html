@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V19.0 - 跳跃与跑步调整版 (30x30)</title>
+    <title>The Backrooms V21.0 - 最终碰撞修复版 (30x30)</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
         #instructions {
@@ -46,7 +46,7 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V19.0 跳跃与跑步调整版)</h1>
+        <h1>THE BACKROOMS LEVEL 0 (V21.0 最终碰撞修复版)</h1>
         <p>按下 **Ctrl + Q** 键切换穿墙模式 (安全措施)。按下 **E** 键显示/隐藏调试信息。</p>
         <p>点击屏幕开始</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑</p>
@@ -97,7 +97,8 @@
         const JUMP_VELOCITY = 6.0; 
         const GRAVITY = -15.0; 
         
-        const PLAYER_COLLISION_DISTANCE = 0.8; 
+        // V21.0 修复: 碰撞距离设置为 1.0 (最终尝试修复斜向穿墙)
+        const PLAYER_COLLISION_DISTANCE = 1.0; 
         const WALK_ACCEL = 50.0;
         const RUN_ACCEL = 100.0; 
         const MONSTER_SPEED = 3.0; 
@@ -586,7 +587,7 @@
 
                 if ((moveForward || moveBackward || moveLeft || moveRight) && isShiftDown && stamina > 0) {
                     currentAccel = RUN_ACCEL;
-                    stamina -= STAMINA_RUN_COST * delta; // 消耗增加
+                    stamina -= STAMINA_RUN_COST * delta; 
                 } else if (stamina < 100) {
                     stamina += STAMINA_REGEN * delta;
                 }
@@ -603,7 +604,7 @@
                 const localStepX = -velocity.x * delta;
                 const localStepZ = -velocity.z * delta;
 
-                // Bug 1 修复: 独立检查 X 和 Z 方向的碰撞
+                // 斜向穿墙修复: 独立检查 X 和 Z 方向的碰撞
                 const wallsOnly = wallObjects.filter(obj => obj !== monster);
 
                 if (!noClip) {
@@ -615,6 +616,7 @@
                         const rayXDir = new THREE.Vector3(localStepX, 0, 0).normalize().applyQuaternion(camera.quaternion);
                         rayXDir.y = 0; 
                         
+                        // 使用 PLAYER_COLLISION_DISTANCE = 1.0
                         const wallRaycasterX = new THREE.Raycaster(camera.position, rayXDir, 0, PLAYER_COLLISION_DISTANCE);
                         const collisionsX = wallRaycasterX.intersectObjects(wallsOnly);
                         
@@ -629,6 +631,7 @@
                         const rayZDir = new THREE.Vector3(0, 0, localStepZ).normalize().applyQuaternion(camera.quaternion);
                         rayZDir.y = 0; 
                         
+                        // 使用 PLAYER_COLLISION_DISTANCE = 1.0
                         const wallRaycasterZ = new THREE.Raycaster(camera.position, rayZDir, 0, PLAYER_COLLISION_DISTANCE);
                         const collisionsZ = wallRaycasterZ.intersectObjects(wallsOnly);
                         
