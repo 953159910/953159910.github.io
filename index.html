@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.8 - 视角稳定性修复版</title>
+    <title>The Backrooms V22.10 - 旋转周期修正版</title>
     <style>
         /* ... (CSS 样式保持不变) ... */
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
@@ -54,8 +54,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.8 视角稳定性修复版)</h1>
-        <p>修复了上下看时屏幕倾斜导致的 180 度翻转问题。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.10 旋转周期修正版)</h1>
+        <p>彻底修复水平视角旋转导致的 $180^\circ$ 翻转问题。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑 | **E 开启/关闭 调试信息**</p>
         <p>点击屏幕开始</p>
     </div>
@@ -80,7 +80,6 @@
     <script>
         // --- 1. 全局变量声明 ---
         
-        // 游戏参数
         let GRID_SIZE = 30; 
         const TILE_SIZE = 10;
         const WALL_HEIGHT = 3;
@@ -89,7 +88,6 @@
         let HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
         let currentLevel = 0; 
 
-        // 运动参数
         const WALK_ACCEL = 50.0;
         const RUN_ACCEL = 100.0; 
         const JUMP_VELOCITY = 6.0; 
@@ -102,24 +100,21 @@
         let prevCameraRotationY; 
         const SWAY_MAX_ANGLE = Math.PI * 0.05; 
         const SWAY_SMOOTHING = 0.2; 
+        const MAX_PITCH_RADIANS = 1.48; // 约 85 度
+        const TWO_PI = Math.PI * 2; // V22.10 新增常量
         
-        // V22.8 新增：用于防止万向锁触发 Z 轴旋转的限制角度 (约 85 度)
-        const PITCH_LIMIT_RADIANS = 1.48; 
-
-        // 游戏状态
+        // ... (其他参数保持不变) ...
         let health = 100;
         let stamina = 100;
         const STAMINA_RUN_COST = 20; 
         const STAMINA_REGEN = 15;
         const MONSTER_DAMAGE = 20;
 
-        // Three.js 核心变量
         let camera, scene, renderer, controls;
         let prevTime = performance.now();
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
         
-        // 碰撞与实体
         let wallBoundingBoxes = []; 
         let playerBox = new THREE.Box3(); 
         let wallObjects = []; 
@@ -130,12 +125,10 @@
         let monsterWanderTarget = new THREE.Vector3();
         let monsterDistance = Infinity;
         
-        // 怪物参数
         const MONSTER_SPEED = 3.0; 
         const CHASE_DISTANCE = 15; 
         const MONSTER_COLLISION_DISTANCE = 0.5;
         
-        // 传送与生成
         const TELEPORT_COOLDOWN = 60000; 
         const TELEPORT_CHECK_INTERVAL = 10000; 
         let lastTeleportTime = 0;
@@ -145,7 +138,6 @@
         let distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
         let lastCameraPosition = new THREE.Vector3();
 
-        // 交互与调试
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let isShiftDown = false;
         let canJump = false;
@@ -154,8 +146,7 @@
         let debugHudVisible = false; 
         let MAP_DATA;
 
-        // --- 2. 核心函数定义 ---
-
+        // --- 2. 核心函数定义 (初始化和 Level 设置省略，保持不变) ---
         window.onload = function() {
             try {
                 document.getElementById('the-hum').src = 'the_hum.mp3';
@@ -184,10 +175,8 @@
             if(typeof updateHUD === 'function') updateHUD();
         }
 
-        // --- Level 切换与设置 ---
-
+        // ... (setupLevel, addLevel1Details, createExitTextTexture, createExitDoor, etc. 保持不变) ...
         function setupLevel(levelIndex) {
-            // 1. 清理旧场景
             while(scene.children.length > 0){ scene.remove(scene.children[0]); }
             wallObjects.length = 0; 
             wallBoundingBoxes.length = 0;
@@ -195,18 +184,15 @@
             
             currentLevel = levelIndex;
             
-            // 2. 设置 Level 参数
             let floorColor, wallColor, fogColor, levelSize, wallDensity;
 
             if (levelIndex === 0) {
-                // Level 0: Backrooms 
                 levelSize = 30;
                 wallColor = 0xb6a04e;
                 floorColor = 0x91815f;
                 fogColor = 0x998b4b;
                 wallDensity = 0.35;
             } else if (levelIndex === 1) {
-                // Level 1: 宜居区 (黄褐色混凝土/深灰色沥青)
                 levelSize = 25; 
                 wallColor = 0x808000; 
                 floorColor = 0x444444; 
@@ -220,18 +206,15 @@
             MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
             HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
 
-            // 3. 设置场景环境
             scene.background = new THREE.Color(fogColor); 
             scene.fog = new THREE.FogExp2(fogColor, 0.08); 
 
-            // 4. 创建地图实体
             MAP_DATA = generateRandomMap(levelSize, wallDensity); 
             const wallTexture = createNoiseTexture(wallColor); 
             const floorTexture = createNoiseTexture(floorColor); 
             const ceilingTexture = createNoiseTexture(0xaaaaaa); 
             createMaze(wallTexture, floorTexture, ceilingTexture);
             
-            // 5. 放置玩家和实体
             const halfFinalSize = HALF_MAP_SIZE;
             camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
             camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
@@ -247,7 +230,6 @@
             createMonster();
             spawnAlmondWater(3 + levelIndex * 2); 
 
-            // 重置状态
             health = 100;
             stamina = 100;
             lastTeleportTime = performance.now();
@@ -256,10 +238,9 @@
             distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
             updateHUD();
         }
-
+        
         function addLevel1Details(size) {
             const HALF_MAP_SIZE_LOCAL = (size * TILE_SIZE) / 2;
-            
             const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 4);
             const doorMat = new THREE.MeshBasicMaterial({ color: 0x333333 }); 
 
@@ -275,11 +256,9 @@
                 
                 const door = new THREE.Mesh(doorGeo, doorMat);
                 door.position.set(x, WALL_HEIGHT / 2, z);
-
                 if (Math.abs(x - (gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL)) > Math.abs(z - (gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL))) {
                     door.rotation.y = Math.PI / 2;
                 }
-
                 scene.add(door);
             }
 
@@ -291,7 +270,6 @@
                     if (MAP_DATA[z][x] === 0 && Math.random() < 0.1) {
                         const xPos = x * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
                         const zPos = z * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
-                        
                         const pipe = new THREE.Mesh(pipeGeo, pipeMat);
                         pipe.position.set(xPos + TILE_SIZE/3, WALL_HEIGHT - 0.2, zPos - TILE_SIZE/3); 
                         pipe.rotation.x = Math.PI / 2;
@@ -301,7 +279,6 @@
                 }
             }
         }
-
 
         function createExitTextTexture() {
             const canvas = document.createElement('canvas');
@@ -317,70 +294,20 @@
 
         function createExitDoor() {
             if (currentLevel !== 0) return; 
-
             const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 3); 
             const doorMat = new THREE.MeshBasicMaterial({ color: 0xC0C0C0, map: createExitTextTexture() });
             exitDoor = new THREE.Mesh(doorGeo, doorMat);
-
+            exitDoor.isExitDoor = true;
             const x = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
             const z = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
-            
             exitDoor.position.set(x, WALL_HEIGHT / 2, z); 
             scene.add(exitDoor);
             wallObjects.push(exitDoor); 
+            const box = new THREE.Box3().setFromObject(exitDoor); 
+            wallBoundingBoxes.push(box);
         }
 
-        function spawnAlmondWater(count) {
-            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
-            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
-            
-            for (let i = 0; i < count; i++) {
-                let gridX, gridZ, attempts = 0;
-                do { gridX = Math.floor(Math.random() * GRID_SIZE); gridZ = Math.floor(Math.random() * GRID_SIZE); attempts++;
-                } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 100);
-                if (attempts < 100) {
-                    const x = gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
-                    const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
-                    const bottle = new THREE.Mesh(bottleGeo, bottleMat);
-                    bottle.position.set(x, PLAYER_HEIGHT / 2, z);
-                    bottle.rotation.y = Math.random() * Math.PI * 2; 
-                    bottle.isAlmondWater = true; 
-                    scene.add(bottle);
-                    almondWaterObjects.push(bottle);
-                }
-            }
-        }
-        
-        function spawnSingleAlmondWater() {
-            const maxRangeTiles = 10, minRangeTiles = 5; 
-            const playerGridX = Math.floor((camera.position.x + HALF_MAP_SIZE) / TILE_SIZE);
-            const playerGridZ = Math.floor((camera.position.z + HALF_MAP_SIZE) / TILE_SIZE);
-            
-            let gridX, gridZ, attempts = 0;
-            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
-            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 });
-            
-            do {
-                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
-                const angle = Math.random() * Math.PI * 2;
-                gridX = playerGridX + Math.floor(range * Math.cos(angle));
-                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
-                attempts++;
-            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 50);
-            if (attempts < 50) {
-                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
-                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
-                const bottle = new THREE.Mesh(bottleGeo, bottleMat);
-                bottle.position.set(x, PLAYER_HEIGHT / 2, z);
-                bottle.rotation.y = Math.random() * Math.PI * 2; 
-                bottle.isAlmondWater = true; 
-                scene.add(bottle);
-                almondWaterObjects.push(bottle);
-                showPickupMessage("杏仁水已在附近生成！");
-            }
-        }
-
-        // --- 3. 游戏循环 (V22.8 视角稳定性修复) ---
+        // --- 3. 游戏循环 (V22.10 Y 轴周期修正) ---
 
         function animate() {
             requestAnimationFrame(animate);
@@ -392,6 +319,9 @@
             
             if (controls.isLocked === true && health > 0) {
                 
+                // V22.9 修复：钳制俯仰角，避免万向锁
+                camera.rotation.x = Math.max(-MAX_PITCH_RADIANS, Math.min(MAX_PITCH_RADIANS, camera.rotation.x));
+
                 const distanceMoved = camera.position.distanceTo(lastCameraPosition);
                 totalDistanceTraveled += distanceMoved;
                 lastCameraPosition.copy(camera.position);
@@ -468,25 +398,23 @@
                     canJump = true;
                 }
                 
-                // --- 视角倾斜/旋转逻辑 (V22.8 稳定性增强) ---
+                // --- 视角倾斜/旋转逻辑 (V22.10 修复 Y 轴环绕跳变) ---
                 if (prevCameraRotationY !== undefined) {
-                    const rotationDelta = camera.rotation.y - prevCameraRotationY; 
+                    let deltaY = camera.rotation.y - prevCameraRotationY; 
+                    
+                    // **V22.10 核心修正**：如果 Delta 超过 PI (180度)，说明发生了周期环绕，需要修正 Delta 值
+                    if (Math.abs(deltaY) > Math.PI) {
+                        deltaY -= Math.sign(deltaY) * TWO_PI;
+                    }
                     
                     rotationTargetZ = THREE.MathUtils.clamp(
-                        rotationDelta * 10 * SWAY_MAX_ANGLE, 
+                        deltaY * 10 * SWAY_MAX_ANGLE, 
                         -SWAY_MAX_ANGLE, SWAY_MAX_ANGLE 
                     );
                 }
                 
-                // **V22.8 稳定性守卫：检查俯仰角是否接近垂直 (万向锁风险)**
-                if (Math.abs(camera.rotation.x) > PITCH_LIMIT_RADIANS) {
-                    rotationTargetZ = 0; // 目标倾斜归零
-                    camera.rotation.z = 0; // 立即将 Z 轴旋转设为 0，防止翻转
-                } else {
-                    // 平滑地将当前 Z 轴旋转角度移向目标值 (或归零)
-                    camera.rotation.z += (rotationTargetZ - camera.rotation.z) * SWAY_SMOOTHING;
-                }
-
+                // 平滑应用倾斜
+                camera.rotation.z += (rotationTargetZ - camera.rotation.z) * SWAY_SMOOTHING;
                 prevCameraRotationY = camera.rotation.y; 
                 // --- 视角倾斜/旋转逻辑 结束 ---
 
@@ -498,8 +426,55 @@
             renderer.render(scene, camera);
         }
 
-        // --- 4. 辅助功能 (保持不变) ---
-
+        // ... (其余辅助函数保持 V22.9 版本不变) ...
+        function spawnAlmondWater(count) {
+            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
+            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
+            const halfFinalSize = HALF_MAP_SIZE;
+            
+            for (let i = 0; i < count; i++) {
+                let gridX, gridZ, attempts = 0;
+                do { gridX = Math.floor(Math.random() * GRID_SIZE); gridZ = Math.floor(Math.random() * GRID_SIZE); attempts++;
+                } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 100);
+                if (attempts < 100) {
+                    const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const bottle = new THREE.Mesh(bottleGeo, bottleMat);
+                    bottle.position.set(x, PLAYER_HEIGHT / 2, z);
+                    bottle.rotation.y = Math.random() * Math.PI * 2; 
+                    bottle.isAlmondWater = true; 
+                    scene.add(bottle);
+                    almondWaterObjects.push(bottle);
+                }
+            }
+        }
+        function spawnSingleAlmondWater() {
+            const maxRangeTiles = 10, minRangeTiles = 5; 
+            const halfFinalSize = HALF_MAP_SIZE;
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
+            let gridX, gridZ, attempts = 0;
+            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
+            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 });
+            do {
+                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
+                const angle = Math.random() * Math.PI * 2;
+                gridX = playerGridX + Math.floor(range * Math.cos(angle));
+                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
+                attempts++;
+            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 50);
+            if (attempts < 50) {
+                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                const bottle = new THREE.Mesh(bottleGeo, bottleMat);
+                bottle.position.set(x, PLAYER_HEIGHT / 2, z);
+                bottle.rotation.y = Math.random() * Math.PI * 2; 
+                bottle.isAlmondWater = true; 
+                scene.add(bottle);
+                almondWaterObjects.push(bottle);
+                showPickupMessage("杏仁水已在附近生成！");
+            }
+        }
         function onMouseDown(event) {
             if (controls.isLocked && event.button === 0) { 
                 const pickupRaycaster = new THREE.Raycaster();
