@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V14.0 - 无缝无限地形版</title>
+    <title>The Backrooms V15.1 - 优化视野与地图版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
         #instructions {
@@ -46,7 +46,7 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V14.0 无缝无限地形版)</h1>
+        <h1>THE BACKROOMS LEVEL 0 (V15.1 优化视野与地图版)</h1>
         <p>按下 **Ctrl + Q** 键切换穿墙模式 (安全措施)。按下 **E** 键显示/隐藏调试信息。</p>
         <p>点击屏幕开始</p>
         <p>W, A, S, D 移动 | SHIFT 奔跑</p>
@@ -104,7 +104,8 @@
         const CHASE_DISTANCE = 15; 
         const MONSTER_COLLISION_DISTANCE = 0.5;
 
-        const GRID_SIZE = 30; 
+        // 地图尺寸: 120x120 个单元格，每个单元格 10x10 米，总地图尺寸 1200x1200 米
+        const GRID_SIZE = 120; 
         let MAP_DATA; 
         let monsterDistance = Infinity; 
         
@@ -122,23 +123,16 @@
         let currentFPS = 0;
         let debugHudVisible = false;
         
-        // --- V14.0 无缝地图相关变量 ---
-        let mapContainer; // 包含所有墙壁、地板等的基础几何体组
-        let mapTiles = []; // 包含 9 个地图块的数组
-        let wallObjects = []; // 碰撞检测只针对这组墙壁
+        let wallObjects = []; 
         let almondWaterObjects = []; 
-        
+
         const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
         const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
-        // 玩家必须保持在 (MAP_WORLD_SIZE / 2) - WRAP_BUFFER 的范围内，否则触发平移
-        const WRAP_BUFFER = 5; 
-        const WRAP_THRESHOLD = HALF_MAP_SIZE - WRAP_BUFFER;
 
 
-        // --- 地图生成与渲染 (V14.0 核心改动) ---
+        // --- 地图生成与渲染 ---
 
         function generateRandomMap(size, wallDensity = 0.35) { 
-            // ... (地图数据生成逻辑不变)
             const map = Array.from({ length: size }, () => Array(size).fill(0));
             for (let z = 0; z < size; z++) {
                 for (let x = 0; x < size; x++) {
@@ -159,13 +153,12 @@
             const ceilingMat = new THREE.MeshBasicMaterial({ map: ceilingTexture, side: THREE.DoubleSide });
             const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffee, side: THREE.DoubleSide });
 
-            mapContainer = new THREE.Group();
             wallObjects.length = 0; 
 
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            const halfFinalSize = HALF_MAP_SIZE;
             const textureRepeatFactor = 1; 
 
-            // 1. 创建基础地图块几何体，并添加到 mapContainer
+            // 创建单个大地图块
             for (let z = 0; z < GRID_SIZE; z++) {
                 for (let x = 0; x < GRID_SIZE; x++) {
                     
@@ -179,13 +172,13 @@
                     floor.rotation.x = -Math.PI / 2;
                     floor.position.set(xPos, 0, zPos);
                     floor.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
-                    mapContainer.add(floor);
+                    scene.add(floor);
 
                     const ceiling = new THREE.Mesh(tileGeo, ceilingMat);
                     ceiling.rotation.x = Math.PI / 2;
                     ceiling.position.set(xPos, WALL_HEIGHT, zPos);
                     ceiling.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
-                    mapContainer.add(ceiling);
+                    scene.add(ceiling);
 
                     if (tileType === 0) {
                         const lightWidth = 0.2;
@@ -193,7 +186,7 @@
                         const lightGeo = new THREE.BoxGeometry(lightWidth, 0.05, lightLength);
                         const tubeLight = new THREE.Mesh(lightGeo, lightMat);
                         tubeLight.position.set(xPos, WALL_HEIGHT - 0.025, zPos);
-                        mapContainer.add(tubeLight);
+                        scene.add(tubeLight);
                     }
 
                     if (tileType === 1) {
@@ -201,21 +194,9 @@
                         const wall = new THREE.Mesh(wallGeo, wallMat);
                         wall.position.set(xPos, WALL_HEIGHT / 2, zPos);
                         wall.material.map.repeat.set(textureRepeatFactor, textureRepeatFactor); 
-                        mapContainer.add(wall);
-                        wallObjects.push(wall); // 碰撞检测只使用中央地图块的墙
+                        scene.add(wall);
+                        wallObjects.push(wall); 
                     }
-                }
-            }
-
-            // 2. 克隆地图块，形成 3x3 栅格，实现无缝视觉效果
-            mapTiles.length = 0;
-            for (let i = -1; i <= 1; i++) {
-                for (let j = -1; j <= 1; j++) {
-                    const tile = (i === 0 && j === 0) ? mapContainer : mapContainer.clone();
-                    tile.position.x = i * MAP_WORLD_SIZE;
-                    tile.position.z = j * MAP_WORLD_SIZE;
-                    scene.add(tile);
-                    mapTiles.push(tile);
                 }
             }
         }
@@ -227,13 +208,15 @@
 
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x998b4b); 
-            scene.fog = new THREE.FogExp2(0x998b4b, 0.08);
+            
+            // V15.1: 调整浓雾密度到适中的 0.02
+            scene.fog = new THREE.FogExp2(0x998b4b, 0.02); 
 
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.y = PLAYER_HEIGHT;
             
-            // 确保玩家起始位置在中心地图块的 (1, 1) 附近
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            // 玩家起始位置仍靠近地图中心 (0,0)
+            const halfFinalSize = HALF_MAP_SIZE;
             camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
             camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
             
@@ -253,7 +236,6 @@
 
             controls = new THREE.PointerLockControls(camera, document.body);
 
-            // ... (事件监听和锁屏逻辑不变)
             const instructions = document.getElementById('instructions');
             instructions.addEventListener('click', function () { 
                 controls.lock(); 
@@ -303,9 +285,8 @@
             updateHUD();
         }
 
-        // ... (其他辅助函数如 onMouseDown, spawnAlmondWater, showPickupMessage, findTeleportSpot 不变) ...
-        
-        // --- 怪物和杏仁水生成 (逻辑不变，但在 mapContainer 坐标系内) ---
+        // --- 游戏逻辑函数 ---
+
         function onMouseDown(event) {
             if (controls.isLocked && event.button === 0) { 
                 const pickupRaycaster = new THREE.Raycaster();
@@ -334,7 +315,7 @@
         function spawnAlmondWater(count) {
             const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
             const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            const halfFinalSize = HALF_MAP_SIZE;
 
             for (let i = 0; i < count; i++) {
                 let gridX, gridZ;
@@ -343,7 +324,7 @@
                     gridX = Math.floor(Math.random() * GRID_SIZE);
                     gridZ = Math.floor(Math.random() * GRID_SIZE);
                     attempts++;
-                } while (MAP_DATA[gridZ][gridX] !== 0 && attempts < 100);
+                } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 100);
 
                 if (attempts < 100) {
                     const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
@@ -359,10 +340,10 @@
         }
         
         function spawnSingleAlmondWater() {
-            // ... (简化代码，保持生成逻辑不变)
             const maxRangeTiles = 10; 
             const minRangeTiles = 5; 
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            const halfFinalSize = HALF_MAP_SIZE;
+            
             const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
             const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
             
@@ -403,7 +384,6 @@
         }
         
         function showPickupMessage(text) {
-            // ... (消息提示逻辑不变)
             const msgElement = document.getElementById('message');
             msgElement.textContent = text;
             msgElement.style.opacity = 1;
@@ -415,11 +395,10 @@
         }
         
         function findTeleportSpot() {
-            // ... (实体传送点寻找逻辑不变)
             const maxRangeTiles = 5; 
             const minRangeTiles = 2; 
             
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            const halfFinalSize = HALF_MAP_SIZE;
             
             const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
             const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
@@ -459,7 +438,7 @@
             const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); 
             monster = new THREE.Mesh(monsterGeo, monsterMat);
             
-            const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+            const halfFinalSize = HALF_MAP_SIZE;
 
             let gridX = GRID_SIZE - 5, gridZ = GRID_SIZE - 5;
             while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) {
@@ -477,7 +456,6 @@
         }
 
         function monsterAI(delta) {
-            // ... (怪物 AI 逻辑不变)
             monsterDistance = camera.position.distanceTo(monster.position); 
             const chaseAudio = document.getElementById('monster-chase'); 
 
@@ -504,7 +482,7 @@
                 if (chaseAudio && !chaseAudio.paused) { chaseAudio.pause(); }
                 
                 if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
-                    const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
+                    const halfFinalSize = HALF_MAP_SIZE;
                     let gridX, gridZ;
                     do {
                         gridX = Math.floor(Math.random() * GRID_SIZE);
@@ -542,30 +520,6 @@
         }
         
         // --- 核心动画循环 ---
-        
-        // **V14.0 新增：无缝平移函数**
-        function handleSeamlessShift(shiftX, shiftZ) {
-            // 1. 平移玩家
-            camera.position.x += shiftX;
-            camera.position.z += shiftZ;
-            lastCameraPosition.copy(camera.position);
-
-            // 2. 平移实体
-            monster.position.x += shiftX;
-            monster.position.z += shiftZ;
-
-            // 3. 平移杏仁水
-            almondWaterObjects.forEach(bottle => {
-                bottle.position.x += shiftX;
-                bottle.position.z += shiftZ;
-            });
-            
-            // 4. 平移整个 3x3 地图网格（保持相对位置不变）
-            mapTiles.forEach(tile => {
-                tile.position.x += shiftX;
-                tile.position.z += shiftZ;
-            });
-        }
 
         function animate() {
             requestAnimationFrame(animate);
@@ -577,7 +531,6 @@
             
             if (controls.isLocked === true && health > 0) {
                 
-                // ... (移动距离、杏仁水生成和实体传送逻辑不变)
                 const distanceMoved = camera.position.distanceTo(lastCameraPosition);
                 totalDistanceTraveled += distanceMoved;
                 lastCameraPosition.copy(camera.position);
@@ -631,7 +584,6 @@
                 const localStepX = -velocity.x * delta;
                 const localStepZ = -velocity.z * delta;
 
-                // **碰撞检测只针对中央地图块的墙体**
                 const rayX = new THREE.Vector3();
                 const rayZ = new THREE.Vector3();
                 const wallsOnly = wallObjects.filter(obj => obj !== monster);
@@ -680,33 +632,6 @@
 
                 camera.position.y = PLAYER_HEIGHT;
                 
-                // **V14.0 核心：无缝平移逻辑**
-                let shiftX = 0;
-                let shiftZ = 0;
-                
-                // 检查 X 轴边界
-                if (camera.position.x > WRAP_THRESHOLD) {
-                    // 玩家向右越过界限，世界向左平移一个地图尺寸
-                    shiftX = -MAP_WORLD_SIZE; 
-                } else if (camera.position.x < -WRAP_THRESHOLD) {
-                    // 玩家向左越过界限，世界向右平移一个地图尺寸
-                    shiftX = MAP_WORLD_SIZE; 
-                }
-                
-                // 检查 Z 轴边界
-                if (camera.position.z > WRAP_THRESHOLD) {
-                    // 玩家向前越过界限，世界向后平移一个地图尺寸
-                    shiftZ = -MAP_WORLD_SIZE; 
-                } else if (camera.position.z < -WRAP_THRESHOLD) {
-                    // 玩家向后越过界限，世界向前平移一个地图尺寸
-                    shiftZ = MAP_WORLD_SIZE; 
-                }
-
-                if (shiftX !== 0 || shiftZ !== 0) {
-                    handleSeamlessShift(shiftX, shiftZ);
-                }
-
-
                 monsterAI(delta); 
                 updateHUD();
             }
@@ -715,7 +640,8 @@
             renderer.render(scene, camera);
         }
         
-        // ... (updateHUD 和 createNoiseTexture 不变) ...
+        // --- 辅助功能函数 ---
+        
         function updateHUD() {
             document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
             document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
