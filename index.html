@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V12.9 - 调试与性能版</title>
+    <title>The Backrooms V13.1 - 音频与安全版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; }
         #instructions {
@@ -36,17 +36,18 @@
             border-radius: 5px; opacity: 0; transition: opacity 0.5s;
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    
     <audio id="the-hum" loop></audio>
     <audio id="almond-pickup"></audio>
     <audio id="monster-chase" loop></audio>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V12.9 调试版)</h1>
-        <p>按下 **Q** 键切换穿墙模式。按下 **E** 键显示/隐藏调试信息。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V13.1 音频与安全版)</h1>
+        <p>按下 **Ctrl + Q** 键切换穿墙模式 (安全措施)。按下 **E** 键显示/隐藏调试信息。</p>
         <p>点击屏幕开始</p>
         <p>W, A, S, D 移动 | SHIFT 奔跑</p>
     </div>
@@ -65,6 +66,7 @@
 
     <script>
         window.onload = function() {
+            // **恢复音频文件的引用**
             document.getElementById('the-hum').src = 'the_hum.mp3';
             document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
             document.getElementById('monster-chase').src = 'monster_chase.mp3';
@@ -73,6 +75,7 @@
             animate();
         };
 
+        // **所有变量声明提前**
         let camera, scene, renderer, controls;
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let isShiftDown = false;
@@ -104,7 +107,6 @@
         const CHASE_DISTANCE = 15; 
         const MONSTER_COLLISION_DISTANCE = 0.5;
 
-        // 地图尺寸
         const GRID_SIZE = 30; 
         let MAP_DATA; 
         let monsterDistance = Infinity; 
@@ -119,14 +121,11 @@
         let distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
         let lastCameraPosition = new THREE.Vector3();
 
-        // **新增：无碰撞模式开关**
         let noClip = false;
-        // **新增：帧数跟踪**
         let currentFPS = 0;
-
         let debugHudVisible = false;
 
-
+        // --- 随机地图生成 ---
         function generateRandomMap(size, wallDensity = 0.35) { 
             const map = Array.from({ length: size }, () => Array(size).fill(0));
             for (let z = 0; z < size; z++) {
@@ -174,11 +173,13 @@
             const instructions = document.getElementById('instructions');
             instructions.addEventListener('click', function () { 
                 controls.lock(); 
+                // **恢复环境音效播放**
                 document.getElementById('the-hum').play().catch(e => console.log("Audio playback blocked:", e));
             });
             controls.addEventListener('lock', function () { instructions.style.display = 'none'; });
             controls.addEventListener('unlock', function () { 
                 instructions.style.display = 'block'; 
+                // **恢复音频暂停**
                 document.getElementById('the-hum').pause();
                 document.getElementById('monster-chase').pause();
             });
@@ -193,11 +194,13 @@
                     case 'KeyE': 
                         if (controls.isLocked) debugHudVisible = !debugHudVisible; 
                         break;
-                    // **新增：Q 键切换穿墙**
+                    // **Q 键安全措施：检查 Ctrl 键**
                     case 'KeyQ': 
-                        if (controls.isLocked) {
+                        if (controls.isLocked && event.ctrlKey) { 
                             noClip = !noClip;
                             showPickupMessage(noClip ? "无碰撞模式 (No-Clip) 已开启" : "无碰撞模式 (No-Clip) 已关闭");
+                        } else if (controls.isLocked && !event.ctrlKey) {
+                            showPickupMessage("请同时按下 Ctrl + Q 开启调试模式。");
                         }
                         break;
                 }
@@ -286,6 +289,7 @@
                     updateHUD();
                     showPickupMessage("杏仁水：生命值和体力已恢复！");
 
+                    // **恢复音频播放**
                     document.getElementById('almond-pickup').play();
 
                     scene.remove(bottle);
@@ -447,11 +451,12 @@
         function monsterAI(delta) {
             
             monsterDistance = camera.position.distanceTo(monster.position); 
-            const chaseAudio = document.getElementById('monster-chase');
+            const chaseAudio = document.getElementById('monster-chase'); 
 
             if (monsterDistance < CHASE_DISTANCE) {
                 if (monsterState !== 'chasing') { monsterState = 'chasing'; }
-                if (chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
+                // **恢复追逐音效播放**
+                if (chaseAudio && chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
 
                 const targetDir = new THREE.Vector3().subVectors(camera.position, monster.position).normalize();
                 let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * delta);
@@ -469,7 +474,8 @@
 
             } else {
                 if (monsterState !== 'wandering') { monsterState = 'wandering'; }
-                if (!chaseAudio.paused) { chaseAudio.pause(); }
+                // **恢复追逐音效暂停**
+                if (chaseAudio && !chaseAudio.paused) { chaseAudio.pause(); }
                 
                 if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
                     const halfFinalSize = (GRID_SIZE * TILE_SIZE) / 2;
@@ -510,7 +516,7 @@
         }
 
 
-        // --- HUD 更新 (新增 FPS) ---
+        // --- HUD 更新 ---
         function updateHUD() {
             document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
             document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
@@ -521,6 +527,7 @@
                 controls.unlock();
                 document.getElementById('instructions').innerHTML = '<h1>游戏结束 (你已被捕获)</h1><p>按 F5 重新开始</p>';
                 document.getElementById('instructions').style.display = 'block';
+                // **恢复音频暂停**
                 document.getElementById('the-hum').pause();
                 document.getElementById('monster-chase').pause();
                 return;
@@ -535,7 +542,6 @@
                     }
                 });
                 
-                // **更新 FPS 文本**
                 document.getElementById('fps-text').textContent = currentFPS.toFixed(0); 
 
                 document.getElementById('distance-text').textContent = 
@@ -597,12 +603,10 @@
             const time = performance.now();
             const timeMs = time; 
             const delta = (time - prevTime) / 1000;
-            // **计算 FPS**
             currentFPS = 1 / delta;
             
             if (controls.isLocked === true && health > 0) {
                 
-                // ... 杏仁水生成和实体传送逻辑 (省略不变的代码) ...
                 const distanceMoved = camera.position.distanceTo(lastCameraPosition);
                 totalDistanceTraveled += distanceMoved;
                 lastCameraPosition.copy(camera.position);
@@ -622,7 +626,7 @@
                             lastTeleportTime = timeMs;
                             monsterState = 'wandering'; 
                             showPickupMessage("实体已传送至附近！");
-                            document.getElementById('monster-chase').pause();
+                            document.getElementById('monster-chase').pause(); 
                         }
                     }
                 }
@@ -660,7 +664,7 @@
                 wallsOnly.push(...wallObjects.filter(obj => obj !== monster));
 
 
-                // **玩家碰撞与移动 (集成 No-Clip 逻辑)**
+                // 玩家碰撞与移动 (集成 No-Clip 逻辑)
                 if (!noClip) {
                     let canMoveX = true;
                     if (Math.abs(localStepX) > 0) {
@@ -706,7 +710,7 @@
 
                 camera.position.y = PLAYER_HEIGHT;
                 
-                // 地图环绕逻辑 (V12.8 保留)
+                // 地图环绕逻辑
                 const MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
                 const HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;     
 
