@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.14 - 错误修复稳定版</title>
+    <title>The Backrooms V22.15 - 最终稳定版 (无摇晃)</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
         #instructions {
@@ -53,8 +53,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.14 错误修复稳定版)</h1>
-        <p>已修正 THREE is not defined 和函数未定义的错误。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.15 核心稳定版 - 无倾斜)</h1>
+        <p>已彻底移除不稳定的 Z 轴旋转代码。现在只保留核心的 X/Y 轴视角。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑 | **E 开启/关闭 调试信息**</p>
         <p>点击屏幕开始</p>
     </div>
@@ -77,7 +77,7 @@
     <div id="message"></div>
 
     <script>
-        // --- 1. 全局变量声明 ---
+        // --- 1. 全局变量声明 (移除 Z 轴相关的变量) ---
         
         let GRID_SIZE = 30; 
         const TILE_SIZE = 10;
@@ -94,14 +94,7 @@
         const PLAYER_WIDTH = 1.0; 
         const PLAYER_DEPTH = 1.0;
 
-        let rotationTargetZ = 0; 
-        let prevCameraRotationY; 
-        const SWAY_MAX_ANGLE = Math.PI * 0.05; 
-        const SWAY_SMOOTHING = 0.2; 
-        const MAX_PITCH_RADIANS = 1.48; 
-        const TWO_PI = Math.PI * 2; 
-        
-        let rollGroup; 
+        // 视角倾斜/摇晃变量已全部移除
 
         let health = 100;
         let stamina = 100;
@@ -135,6 +128,7 @@
         let totalDistanceTraveled = 0;
         const ALMOND_SPAWN_INTERVAL = 100; 
         let distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
+        // 跟踪 camera 的位置
         let lastCameraPosition = new THREE.Vector3(); 
 
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
@@ -145,11 +139,7 @@
         let debugHudVisible = false; 
         let MAP_DATA;
 
-        // --- 2. 核心函数定义（将所有函数放在最前面，确保调用时已定义） ---
-        
-        // ----------------------------------------------------
-        // 核心初始化和渲染函数
-        // ----------------------------------------------------
+        // --- 2. 核心函数定义 ---
 
         function init() {
             scene = new THREE.Scene();
@@ -159,19 +149,15 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
-            rollGroup = new THREE.Group();
-            rollGroup.add(camera);      
-            scene.add(rollGroup);       
+            // V22.15 FIX: 回归最稳定结构，Controls 直接附加到 Camera
+            controls = new THREE.PointerLockControls(camera, document.body); 
+            scene.add(camera);
 
-            camera.position.set(0, 0, 0); 
-            
-            controls = new THREE.PointerLockControls(rollGroup, document.body); 
-
-            setupInputs(); // 现在 setupInputs 肯定已经定义
+            setupInputs();
             window.addEventListener('resize', onWindowResize);
             
             setupLevel(0); 
-            updateHUD(); // 现在 updateHUD 肯定已经定义
+            updateHUD(); 
         }
 
         function animate() {
@@ -184,11 +170,13 @@
             
             if (controls.isLocked === true && health > 0) {
                 
-                rollGroup.rotation.x = Math.max(-MAX_PITCH_RADIANS, Math.min(MAX_PITCH_RADIANS, rollGroup.rotation.x));
+                // V22.15 FIX: 钳制 Camera 的 X 轴旋转，防止翻转
+                camera.rotation.x = Math.max(-1.48, Math.min(1.48, camera.rotation.x));
 
-                const distanceMoved = rollGroup.position.distanceTo(lastCameraPosition);
+                // 跟踪 camera 的位置
+                const distanceMoved = camera.position.distanceTo(lastCameraPosition);
                 totalDistanceTraveled += distanceMoved;
-                lastCameraPosition.copy(rollGroup.position);
+                lastCameraPosition.copy(camera.position);
 
                 if (totalDistanceTraveled >= distanceToNextSpawn) {
                     spawnSingleAlmondWater();
@@ -203,7 +191,6 @@
                             monster.position.copy(newPos);
                             lastTeleportTime = timeMs;
                             monsterState = 'wandering'; 
-                            showPickupMessage("实体已传送至附近！");
                             document.getElementById('monster-chase').pause(); 
                         }
                     }
@@ -233,10 +220,11 @@
                 const localStepX = -velocity.x * delta;
                 const localStepZ = -velocity.z * delta;
 
+                // 碰撞和移动逻辑 (目标对象是 camera)
                 if (!noClip) {
                     if (Math.abs(localStepX) > 0) {
                         controls.moveRight(localStepX);
-                        playerBox.setFromCenterAndSize(rollGroup.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
+                        playerBox.setFromCenterAndSize(camera.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
                         if (checkCollision(playerBox)) {
                             controls.moveRight(-localStepX); 
                             velocity.x = 0;
@@ -244,7 +232,7 @@
                     }
                     if (Math.abs(localStepZ) > 0) {
                         controls.moveForward(localStepZ);
-                        playerBox.setFromCenterAndSize(rollGroup.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
+                        playerBox.setFromCenterAndSize(camera.position, new THREE.Vector3(PLAYER_WIDTH, 2, PLAYER_DEPTH));
                         if (checkCollision(playerBox)) {
                             controls.moveForward(-localStepZ); 
                             velocity.z = 0;
@@ -255,30 +243,15 @@
                     controls.moveForward(localStepZ); 
                 }
                 
-                rollGroup.position.y += velocity.y * delta;
-                if (rollGroup.position.y <= PLAYER_HEIGHT) {
+                // 应用重力和跳跃到 camera 的 Y 轴位置
+                camera.position.y += velocity.y * delta;
+                if (camera.position.y <= PLAYER_HEIGHT) {
                     velocity.y = 0;
-                    rollGroup.position.y = PLAYER_HEIGHT;
+                    camera.position.y = PLAYER_HEIGHT;
                     canJump = true;
                 }
                 
-                // --- 视角倾斜/旋转逻辑 (V22.13 Roll Group 稳定版) ---
-                if (prevCameraRotationY !== undefined) {
-                    let deltaY = rollGroup.rotation.y - prevCameraRotationY; 
-                    
-                    if (Math.abs(deltaY) > Math.PI) {
-                        deltaY -= Math.sign(deltaY) * TWO_PI;
-                    }
-
-                    rotationTargetZ = THREE.MathUtils.clamp(
-                        deltaY * 10 * SWAY_MAX_ANGLE, 
-                        -SWAY_MAX_ANGLE, SWAY_MAX_ANGLE 
-                    );
-                }
-                
-                rollGroup.rotation.z += (rotationTargetZ - rollGroup.rotation.z) * SWAY_SMOOTHING;
-                prevCameraRotationY = rollGroup.rotation.y;
-                // --- 视角倾斜/旋转逻辑 结束 ---
+                // V22.15 FIX: Z 轴旋转代码已移除
 
                 monsterAI(delta); 
                 updateHUD();
@@ -293,7 +266,10 @@
         // ----------------------------------------------------
 
         function setupLevel(levelIndex) {
-            while(scene.children.length > 0){ scene.remove(scene.children[0]); }
+            while(scene.children.length > 0){ 
+                const obj = scene.children[0];
+                if (obj !== camera) scene.remove(obj); // V22.15: 移除除 Camera 以外的所有物体
+            }
             wallObjects.length = 0; 
             wallBoundingBoxes.length = 0;
             almondWaterObjects.length = 0; 
@@ -333,10 +309,11 @@
             
             const halfFinalSize = HALF_MAP_SIZE;
             
-            rollGroup.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
-            rollGroup.position.z = TILE_SIZE * 1.5 - halfFinalSize;
-            rollGroup.position.y = PLAYER_HEIGHT;
-            lastCameraPosition.copy(rollGroup.position);
+            // V22.15 FIX: 设置 camera 的起始位置
+            camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
+            camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
+            camera.position.y = PLAYER_HEIGHT;
+            lastCameraPosition.copy(camera.position);
 
 
             if (levelIndex === 0) {
@@ -354,7 +331,7 @@
             lastTeleportCheckTime = performance.now();
             totalDistanceTraveled = 0;
             distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
-            // updateHUD(); // 放在 init 中调用
+            updateHUD(); 
         }
 
         function addLevel1Details(size) {
@@ -428,6 +405,7 @@
         function onMouseDown(event) {
             if (controls.isLocked && event.button === 0) { 
                 const pickupRaycaster = new THREE.Raycaster();
+                // 射线投射基于 camera
                 pickupRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
                 
                 const almondIntersects = pickupRaycaster.intersectObjects(almondWaterObjects);
@@ -459,13 +437,15 @@
             
             let nearestDistance = Infinity;
             almondWaterObjects.forEach(bottle => {
-                const dist = rollGroup.position.distanceTo(bottle.position);
+                // V22.15: 使用 camera.position
+                const dist = camera.position.distanceTo(bottle.position);
                 if (dist < nearestDistance) nearestDistance = dist;
             });
 
             let exitDistance = Infinity;
             if (exitDoor && currentLevel === 0) {
-                exitDistance = rollGroup.position.distanceTo(exitDoor.position);
+                // V22.15: 使用 camera.position
+                exitDistance = camera.position.distanceTo(exitDoor.position);
             }
             
             document.getElementById('hud').style.display = debugHudVisible ? 'block' : 'none'; 
@@ -613,12 +593,12 @@
         }
 
         function monsterAI(delta) {
-            monsterDistance = rollGroup.position.distanceTo(monster.position); 
+            monsterDistance = camera.position.distanceTo(monster.position); 
             const chaseAudio = document.getElementById('monster-chase'); 
             if (monsterDistance < CHASE_DISTANCE) {
                 if (monsterState !== 'chasing') monsterState = 'chasing'; 
                 if (chaseAudio && chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
-                const targetDir = new THREE.Vector3().subVectors(rollGroup.position, monster.position).normalize();
+                const targetDir = new THREE.Vector3().subVectors(camera.position, monster.position).normalize();
                 let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * delta);
                 monsterStep.y = 0; 
                 const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
@@ -645,7 +625,7 @@
                 if (monsterCollisions.length === 0) monster.position.add(monsterStep);
                 else monsterWanderTarget.set(0, 0, 0); 
             }
-            const lookTarget = monsterState === 'chasing' ? rollGroup.position : monsterWanderTarget;
+            const lookTarget = monsterState === 'chasing' ? camera.position : monsterWanderTarget;
             monster.lookAt(lookTarget.x, monster.position.y, lookTarget.z);
             if (monsterDistance < 2.0) health -= MONSTER_DAMAGE * delta;
         }
@@ -653,8 +633,8 @@
         function findTeleportSpot() {
             const maxRangeTiles = 5, minRangeTiles = 2; 
             const halfFinalSize = HALF_MAP_SIZE;
-            const playerGridX = Math.floor((rollGroup.position.x + halfFinalSize) / TILE_SIZE);
-            const playerGridZ = Math.floor((rollGroup.position.z + halfFinalSize) / TILE_SIZE);
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
             let gridX, gridZ, attempts = 0;
             do {
                 const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
@@ -678,8 +658,8 @@
         function spawnSingleAlmondWater() {
             const maxRangeTiles = 10, minRangeTiles = 5; 
             const halfFinalSize = HALF_MAP_SIZE;
-            const playerGridX = Math.floor((rollGroup.position.x + halfFinalSize) / TILE_SIZE);
-            const playerGridZ = Math.floor((rollGroup.position.z + halfFinalSize) / TILE_SIZE);
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
             let gridX, gridZ, attempts = 0;
             const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
             const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 });
@@ -757,18 +737,16 @@
         }
         
         // ----------------------------------------------------
-        // window.onload 入口 (确保在所有函数定义之后执行)
+        // window.onload 入口
         // ----------------------------------------------------
 
         window.onload = function() {
             try {
-                // 音频加载错误 (404) 仍然存在，但不会阻止程序运行。
                 document.getElementById('the-hum').src = 'the_hum.mp3';
                 document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
                 document.getElementById('monster-chase').src = 'monster_chase.mp3';
             } catch(e) { console.log("Audio setup skipped"); }
 
-            // 修复了所有 ReferenceError，现在可以安全调用
             init(); 
             animate();
         };
