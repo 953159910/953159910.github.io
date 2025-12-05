@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.7 - 视角倾斜与 Level 1 修正版</title>
+    <title>The Backrooms V22.8 - 视角稳定性修复版</title>
     <style>
         /* ... (CSS 样式保持不变) ... */
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
@@ -54,8 +54,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.7 视角倾斜与 Level 1 修正版)</h1>
-        <p>HP/体力条常驻显示。找到 **EXIT** 门即可前往 Level 1。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.8 视角稳定性修复版)</h1>
+        <p>修复了上下看时屏幕倾斜导致的 180 度翻转问题。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑 | **E 开启/关闭 调试信息**</p>
         <p>点击屏幕开始</p>
     </div>
@@ -97,11 +97,14 @@
         const PLAYER_WIDTH = 1.0; 
         const PLAYER_DEPTH = 1.0;
 
-        // 视角倾斜参数 (V22.7 修正)
-        let rotationTargetZ = 0; // 目标 Z 轴旋转角度 (弧度)
-        let prevCameraRotationY; // 用于计算水平旋转变化量
-        const SWAY_MAX_ANGLE = Math.PI * 0.05; // 最大倾斜角度 (约9度)
-        const SWAY_SMOOTHING = 0.2; // 归位平滑度
+        // 视角倾斜参数
+        let rotationTargetZ = 0; 
+        let prevCameraRotationY; 
+        const SWAY_MAX_ANGLE = Math.PI * 0.05; 
+        const SWAY_SMOOTHING = 0.2; 
+        
+        // V22.8 新增：用于防止万向锁触发 Z 轴旋转的限制角度 (约 85 度)
+        const PITCH_LIMIT_RADIANS = 1.48; 
 
         // 游戏状态
         let health = 100;
@@ -122,7 +125,7 @@
         let wallObjects = []; 
         let almondWaterObjects = []; 
         let monster;
-        let exitDoor; // 出口门实体
+        let exitDoor; 
         let monsterState = 'wandering'; 
         let monsterWanderTarget = new THREE.Vector3();
         let monsterDistance = Infinity;
@@ -192,7 +195,7 @@
             
             currentLevel = levelIndex;
             
-            // 2. 设置 Level 参数 (V22.7 Level 1 修正)
+            // 2. 设置 Level 参数
             let floorColor, wallColor, fogColor, levelSize, wallDensity;
 
             if (levelIndex === 0) {
@@ -205,9 +208,9 @@
             } else if (levelIndex === 1) {
                 // Level 1: 宜居区 (黄褐色混凝土/深灰色沥青)
                 levelSize = 25; 
-                wallColor = 0x808000; // 偏黄的苔藓绿/混凝土色
-                floorColor = 0x444444; // 深灰色沥青
-                fogColor = 0x333333; // 仓库中的昏暗环境
+                wallColor = 0x808000; 
+                floorColor = 0x444444; 
+                fogColor = 0x333333; 
                 wallDensity = 0.20; 
             } else {
                 return; 
@@ -238,7 +241,7 @@
             if (levelIndex === 0) {
                 createExitDoor(); 
             } else if (levelIndex === 1) {
-                addLevel1Details(levelSize); // V22.7 新增 Level 1 细节
+                addLevel1Details(levelSize); 
             }
             
             createMonster();
@@ -257,7 +260,6 @@
         function addLevel1Details(size) {
             const HALF_MAP_SIZE_LOCAL = (size * TILE_SIZE) / 2;
             
-            // 1. 铁门 (装饰性)
             const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 4);
             const doorMat = new THREE.MeshBasicMaterial({ color: 0x333333 }); 
 
@@ -266,14 +268,14 @@
                 do {
                     gridX = Math.floor(Math.random() * (size - 2)) + 1;
                     gridZ = Math.floor(Math.random() * (size - 2)) + 1;
-                } while (MAP_DATA[gridZ][gridX] !== 1); // 必须放置在墙体上
+                } while (MAP_DATA[gridZ][gridX] !== 1); 
                 
                 const x = gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
                 const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
                 
                 const door = new THREE.Mesh(doorGeo, doorMat);
                 door.position.set(x, WALL_HEIGHT / 2, z);
-                // 确保门体旋转与墙体方向一致
+
                 if (Math.abs(x - (gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL)) > Math.abs(z - (gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL))) {
                     door.rotation.y = Math.PI / 2;
                 }
@@ -281,7 +283,6 @@
                 scene.add(door);
             }
 
-            // 2. 蒸汽/水管 (装饰性)
             const pipeMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.3 });
             const pipeGeo = new THREE.CylinderGeometry(0.1, 0.1, TILE_SIZE * 0.9, 8);
             
@@ -320,7 +321,6 @@
             const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 3); 
             const doorMat = new THREE.MeshBasicMaterial({ color: 0xC0C0C0, map: createExitTextTexture() });
             exitDoor = new THREE.Mesh(doorGeo, doorMat);
-            exitDoor.isExitDoor = true;
 
             const x = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
             const z = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
@@ -380,7 +380,7 @@
             }
         }
 
-        // --- 3. 游戏循环 (V22.7 视角倾斜逻辑) ---
+        // --- 3. 游戏循环 (V22.8 视角稳定性修复) ---
 
         function animate() {
             requestAnimationFrame(animate);
@@ -468,21 +468,25 @@
                     canJump = true;
                 }
                 
-                // --- 视角倾斜/旋转逻辑 (V22.7 修正) ---
+                // --- 视角倾斜/旋转逻辑 (V22.8 稳定性增强) ---
                 if (prevCameraRotationY !== undefined) {
-                    // 计算水平旋转变化量
                     const rotationDelta = camera.rotation.y - prevCameraRotationY; 
                     
-                    // 设置目标 Z 轴旋转角度：右转 (rotationDelta < 0) -> Z轴负旋转 (屏幕右倾)
-                    // 倾斜角度与旋转速度成正比，并钳制在最大角度内。
                     rotationTargetZ = THREE.MathUtils.clamp(
                         rotationDelta * 10 * SWAY_MAX_ANGLE, 
                         -SWAY_MAX_ANGLE, SWAY_MAX_ANGLE 
                     );
                 }
                 
-                // 平滑地将当前 Z 轴旋转角度移向目标值 (或归零)
-                camera.rotation.z += (rotationTargetZ - camera.rotation.z) * SWAY_SMOOTHING;
+                // **V22.8 稳定性守卫：检查俯仰角是否接近垂直 (万向锁风险)**
+                if (Math.abs(camera.rotation.x) > PITCH_LIMIT_RADIANS) {
+                    rotationTargetZ = 0; // 目标倾斜归零
+                    camera.rotation.z = 0; // 立即将 Z 轴旋转设为 0，防止翻转
+                } else {
+                    // 平滑地将当前 Z 轴旋转角度移向目标值 (或归零)
+                    camera.rotation.z += (rotationTargetZ - camera.rotation.z) * SWAY_SMOOTHING;
+                }
+
                 prevCameraRotationY = camera.rotation.y; 
                 // --- 视角倾斜/旋转逻辑 结束 ---
 
