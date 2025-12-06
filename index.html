@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.17 - 函数顺序修复版</title>
+    <title>The Backrooms V22.18 - 稳定回滚版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
         #instructions {
@@ -53,8 +53,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.17 函数顺序修复版)</h1>
-        <p>已修复因函数调用顺序导致的各种 ReferenceError 错误。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.18 稳定回滚版)</h1>
+        <p>已回滚到上一次运行正常的结构，仅保留碰撞修复和地图安全逻辑。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑 | **E 开启/关闭 调试信息**</p>
         <p>点击屏幕开始</p>
     </div>
@@ -77,7 +77,7 @@
     <div id="message"></div>
 
     <script>
-        // --- 1. 全局变量声明 (必须在函数定义之前) ---
+        // --- 1. 全局变量声明 ---
         
         let GRID_SIZE = 30; 
         const TILE_SIZE = 10;
@@ -136,7 +136,7 @@
         let debugHudVisible = false; 
         let MAP_DATA;
         
-        // --- 2. 核心函数定义 (必须在被 init() 调用之前定义) ---
+        // --- 2. 核心函数定义 ---
         
         function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
@@ -285,9 +285,15 @@
                 if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
                     const halfFinalSize = HALF_MAP_SIZE;
                     let gridX, gridZ;
-                    do { gridX = Math.floor(Math.random() * GRID_SIZE); gridZ = Math.floor(Math.random() * GRID_SIZE);
-                    } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0);
-                    monsterWanderTarget.set(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+                    let attempts = 0;
+                    do { 
+                        gridX = Math.floor(Math.random() * GRID_SIZE); 
+                        gridZ = Math.floor(Math.random() * GRID_SIZE);
+                        attempts++;
+                    } while ((MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0) && attempts < 100);
+                    if (attempts < 100) {
+                       monsterWanderTarget.set(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+                    }
                 }
                 const targetDir = new THREE.Vector3().subVectors(monsterWanderTarget, monster.position).normalize();
                 let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * 0.5 * delta); 
@@ -631,15 +637,14 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
-            // 这里的 THREE.PointerLockControls 依赖于 THREE
             controls = new THREE.PointerLockControls(camera, document.body); 
             scene.add(camera);
 
-            setupInputs(); // 确保 setupInputs 已定义
+            setupInputs(); 
             window.addEventListener('resize', onWindowResize);
             
             setupLevel(0); 
-            updateHUD(); // 确保 updateHUD 已定义
+            updateHUD(); 
         }
 
         function animate() {
@@ -652,7 +657,9 @@
             
             if (controls.isLocked === true && health > 0) {
                 
+                // *** 关键修改：移除所有平滑旋转逻辑，但保留视角限制 ***
                 camera.rotation.x = Math.max(-1.48, Math.min(1.48, camera.rotation.x));
+                // **********************************************
 
                 const distanceMoved = camera.position.distanceTo(lastCameraPosition);
                 totalDistanceTraveled += distanceMoved;
@@ -737,13 +744,10 @@
             renderer.render(scene, camera);
         }
         
-        // ----------------------------------------------------
-        // window.onload 入口 (在所有函数定义之后)
-        // ----------------------------------------------------
+        // --- 3. window.onload 入口 ---
 
         window.onload = function() {
             try {
-                // V22.17 NOTE: 404 错误（audio file not found）是您的本地问题，不影响代码执行，但我们保留 try/catch
                 document.getElementById('the-hum').src = 'the_hum.mp3';
                 document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
                 document.getElementById('monster-chase').src = 'monster_chase.mp3';
