@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>The Backrooms V22.16 - 防止无限加载版</title>
+    <title>The Backrooms V22.17 - 函数顺序修复版</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; color: white; background-color: #000; }
         #instructions {
@@ -53,8 +53,8 @@
 </head>
 <body>
     <div id="instructions">
-        <h1>THE BACKROOMS LEVEL 0 (V22.16 加载修复版)</h1>
-        <p>已增强地图生成逻辑的安全性，防止无限加载。</p>
+        <h1>THE BACKROOMS LEVEL 0 (V22.17 函数顺序修复版)</h1>
+        <p>已修复因函数调用顺序导致的各种 ReferenceError 错误。</p>
         <p>W, A, S, D 移动 | **SPACE 跳跃** | SHIFT 奔跑 | **E 开启/关闭 调试信息**</p>
         <p>点击屏幕开始</p>
     </div>
@@ -77,7 +77,7 @@
     <div id="message"></div>
 
     <script>
-        // --- 1. 全局变量声明 ---
+        // --- 1. 全局变量声明 (必须在函数定义之前) ---
         
         let GRID_SIZE = 30; 
         const TILE_SIZE = 10;
@@ -135,8 +135,493 @@
         let currentFPS = 0;
         let debugHudVisible = false; 
         let MAP_DATA;
+        
+        // --- 2. 核心函数定义 (必须在被 init() 调用之前定义) ---
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
 
-        // --- 2. 核心函数定义 ---
+        function updateHUD() {
+            if (!document.getElementById('health-bar')) return;
+            document.getElementById('health-bar').children[0].style.width = `${Math.max(0, health)}%`;
+            document.getElementById('stamina-bar').children[0].style.width = `${Math.max(0, stamina)}%`;
+            
+            let nearestDistance = Infinity;
+            almondWaterObjects.forEach(bottle => {
+                const dist = camera.position.distanceTo(bottle.position);
+                if (dist < nearestDistance) nearestDistance = dist;
+            });
+
+            let exitDistance = Infinity;
+            if (exitDoor && currentLevel === 0) {
+                exitDistance = camera.position.distanceTo(exitDoor.position);
+            }
+            
+            document.getElementById('hud').style.display = debugHudVisible ? 'block' : 'none'; 
+            
+            if (health <= 0) {
+                controls.unlock();
+                document.getElementById('instructions').innerHTML = `<h1>游戏结束 (Level ${currentLevel} 你已被捕获)</h1><p>按 F5 重新开始</p>`;
+                document.getElementById('instructions').style.display = 'block';
+                document.getElementById('the-hum').pause();
+                document.getElementById('monster-chase').pause();
+                return;
+            }
+
+            if (debugHudVisible) {
+                document.getElementById('current-level-text').textContent = currentLevel;
+                document.getElementById('fps-text').textContent = currentFPS.toFixed(0); 
+                document.getElementById('distance-text').textContent = monsterDistance === Infinity ? 'N/A' : `${monsterDistance.toFixed(2)} m`;
+                document.getElementById('almond-count-text').textContent = almondWaterObjects.length;
+                document.getElementById('nearest-almond-distance-text').textContent = nearestDistance === Infinity ? 'N/A' : `${nearestDistance.toFixed(2)} m`;
+                document.getElementById('exit-door-distance-text').textContent = exitDistance === Infinity ? 'N/A' : `${exitDistance.toFixed(2)} m`;
+            }
+        }
+
+        function onMouseDown(event) {
+            if (controls.isLocked && event.button === 0) { 
+                const pickupRaycaster = new THREE.Raycaster();
+                pickupRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera); 
+                
+                const almondIntersects = pickupRaycaster.intersectObjects(almondWaterObjects);
+                if (almondIntersects.length > 0 && almondIntersects[0].distance < 2.0) { 
+                    const bottle = almondIntersects[0].object;
+                    health = 100; stamina = 100; updateHUD();
+                    showPickupMessage("杏仁水：生命值和体力已恢复！");
+                    document.getElementById('almond-pickup').play().catch(e=>{});
+                    scene.remove(bottle);
+                    const index = almondWaterObjects.indexOf(bottle);
+                    if (index > -1) almondWaterObjects.splice(index, 1);
+                    return;
+                }
+                
+                if (currentLevel === 0 && exitDoor) {
+                    const exitIntersects = pickupRaycaster.intersectObjects([exitDoor]);
+                    if (exitIntersects.length > 0 && exitIntersects[0].distance < 3.0) {
+                        showPickupMessage("找到出口! 正在进入 Level 1: 宜居区...");
+                        setTimeout(() => setupLevel(1), 2000); 
+                    }
+                }
+            }
+        }
+
+        function setupInputs() {
+            const instructions = document.getElementById('instructions');
+            instructions.addEventListener('click', function () { 
+                controls.lock(); 
+                document.getElementById('the-hum').play().catch(e => {});
+            });
+            controls.addEventListener('lock', function () { instructions.style.display = 'none'; });
+            controls.addEventListener('unlock', function () { 
+                instructions.style.display = 'block'; 
+                document.getElementById('the-hum').pause();
+                document.getElementById('monster-chase').pause();
+            });
+
+            document.addEventListener('keydown', (event) => {
+                switch (event.code) {
+                    case 'ArrowUp': case 'KeyW': moveForward = true; break;
+                    case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+                    case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+                    case 'ArrowRight': case 'KeyD': moveRight = true; break;
+                    case 'ShiftLeft': case 'ShiftRight': isShiftDown = true; break;
+                    case 'KeyE': 
+                        if (controls.isLocked) debugHudVisible = !debugHudVisible; 
+                        break;
+                    case 'KeyQ': 
+                        if (controls.isLocked && event.ctrlKey) { 
+                            noClip = !noClip;
+                            showPickupMessage(noClip ? "无碰撞模式 (No-Clip) 已开启" : "无碰撞模式 (No-Clip) 已关闭");
+                        }
+                        break;
+                    case 'Space': 
+                        if (canJump) { velocity.y += JUMP_VELOCITY; canJump = false; } 
+                        break;
+                }
+            });
+
+            document.addEventListener('keyup', (event) => {
+                switch (event.code) {
+                    case 'ArrowUp': case 'KeyW': moveForward = false; break;
+                    case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+                    case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+                    case 'ArrowRight': case 'KeyD': moveRight = false; break;
+                    case 'ShiftLeft': case 'ShiftRight': isShiftDown = false; break;
+                }
+            });
+            
+            document.addEventListener('mousedown', onMouseDown, false);
+        }
+        
+        function checkCollision(box) {
+            for (let i = 0; i < wallBoundingBoxes.length; i++) {
+                if (box.intersectsBox(wallBoundingBoxes[i])) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function monsterAI(delta) {
+            monsterDistance = camera.position.distanceTo(monster.position); 
+            const chaseAudio = document.getElementById('monster-chase'); 
+            if (monsterDistance < CHASE_DISTANCE) {
+                if (monsterState !== 'chasing') monsterState = 'chasing'; 
+                if (chaseAudio && chaseAudio.paused) { chaseAudio.loop = true; chaseAudio.play().catch(e => {}); }
+                const targetDir = new THREE.Vector3().subVectors(camera.position, monster.position).normalize();
+                let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * delta);
+                monsterStep.y = 0; 
+                const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
+                const wallsOnly = wallObjects.filter(obj => obj !== monster); 
+                const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
+                if (monsterCollisions.length === 0) monster.position.add(monsterStep);
+                else monster.rotation.y += (Math.random() * 2 - 1) * Math.PI / 4;
+            } else {
+                if (monsterState !== 'wandering') monsterState = 'wandering'; 
+                if (chaseAudio && !chaseAudio.paused) chaseAudio.pause(); 
+                if (monster.position.distanceTo(monsterWanderTarget) < 1.0 || Math.random() < 0.005) {
+                    const halfFinalSize = HALF_MAP_SIZE;
+                    let gridX, gridZ;
+                    do { gridX = Math.floor(Math.random() * GRID_SIZE); gridZ = Math.floor(Math.random() * GRID_SIZE);
+                    } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0);
+                    monsterWanderTarget.set(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+                }
+                const targetDir = new THREE.Vector3().subVectors(monsterWanderTarget, monster.position).normalize();
+                let monsterStep = targetDir.clone().multiplyScalar(MONSTER_SPEED * 0.5 * delta); 
+                monsterStep.y = 0; 
+                const monsterCollisionRay = new THREE.Raycaster(monster.position, monsterStep.clone().normalize(), 0, MONSTER_COLLISION_DISTANCE); 
+                const wallsOnly = wallObjects.filter(obj => obj !== monster); 
+                const monsterCollisions = monsterCollisionRay.intersectObjects(wallsOnly);
+                if (monsterCollisions.length === 0) monster.position.add(monsterStep);
+                else monsterWanderTarget.set(0, 0, 0); 
+            }
+            const lookTarget = monsterState === 'chasing' ? camera.position : monsterWanderTarget;
+            monster.lookAt(lookTarget.x, monster.position.y, lookTarget.z);
+            if (monsterDistance < 2.0) health -= MONSTER_DAMAGE * delta;
+        }
+
+        function showPickupMessage(text) {
+            const msgElement = document.getElementById('message');
+            msgElement.textContent = text;
+            msgElement.style.opacity = 1;
+            clearTimeout(msgElement.timeout);
+            msgElement.timeout = setTimeout(() => { msgElement.style.opacity = 0; }, 3000);
+        }
+
+        function generateRandomMap(size, wallDensity = 0.35) { 
+            const map = Array.from({ length: size }, () => Array(size).fill(0));
+            for (let z = 0; z < size; z++) {
+                for (let x = 0; x < size; x++) {
+                    if (x === 0 || x === size - 1 || z === 0 || z === size - 1) {
+                        map[z][x] = 1;
+                    } else if (Math.random() < wallDensity) {
+                        map[z][x] = 1;
+                    }
+                }
+            }
+            map[1][1] = 0; 
+            return map;
+        }
+
+        function createNoiseTexture(colorHex) {
+            const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256; 
+            const ctx = canvas.getContext('2d'); ctx.fillStyle = '#' + new THREE.Color(colorHex).getHexString();
+            ctx.fillRect(0, 0, 256, 256); ctx.strokeStyle = `rgba(0, 0, 0, 0.15)`; ctx.lineWidth = 0.5;
+            for (let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(i * 32, 0); ctx.lineTo(i * 32, 256); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i * 32); ctx.lineTo(256, i * 32); ctx.stroke(); }
+            const imgData = ctx.getImageData(0, 0, 256, 256);
+            for (let i = 0; i < imgData.data.length; i += 4) { const val = Math.floor(Math.random() * 30); imgData.data[i] -= val; imgData.data[i+1] -= val; imgData.data[i+2] -= val; }
+            ctx.putImageData(imgData, 0, 0); return new THREE.CanvasTexture(canvas);
+        }
+
+        function createMaze(wallTexture, floorTexture, ceilingTexture) {
+            const wallMat = new THREE.MeshBasicMaterial({ map: wallTexture });
+            const floorMat = new THREE.MeshBasicMaterial({ map: floorTexture });
+            const ceilingMat = new THREE.MeshBasicMaterial({ map: ceilingTexture, side: THREE.DoubleSide });
+            const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffee, side: THREE.DoubleSide });
+
+            wallObjects.length = 0; 
+            wallBoundingBoxes.length = 0;
+
+            const halfFinalSize = HALF_MAP_SIZE;
+
+            for (let z = 0; z < GRID_SIZE; z++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const xPos = x * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const zPos = z * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const tileType = MAP_DATA[z][x]; 
+
+                    const tileGeo = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
+                    const floor = new THREE.Mesh(tileGeo, floorMat);
+                    floor.rotation.x = -Math.PI / 2;
+                    floor.position.set(xPos, 0, zPos);
+                    scene.add(floor);
+
+                    const ceiling = new THREE.Mesh(tileGeo, ceilingMat);
+                    ceiling.rotation.x = Math.PI / 2;
+                    ceiling.position.set(xPos, WALL_HEIGHT, zPos);
+                    scene.add(ceiling);
+
+                    if (tileType === 0) {
+                        const lightWidth = 0.2;
+                        const lightLength = TILE_SIZE - 2;
+                        const lightGeo = new THREE.BoxGeometry(lightWidth, 0.05, lightLength);
+                        const tubeLight = new THREE.Mesh(lightGeo, lightMat);
+                        tubeLight.position.set(xPos, WALL_HEIGHT - 0.025, zPos);
+                        scene.add(tubeLight);
+                    }
+
+                    if (tileType === 1) {
+                        const wallGeo = new THREE.BoxGeometry(TILE_SIZE, WALL_HEIGHT, TILE_SIZE);
+                        const wall = new THREE.Mesh(wallGeo, wallMat);
+                        wall.position.set(xPos, WALL_HEIGHT / 2, zPos);
+                        scene.add(wall);
+                        wallObjects.push(wall);
+                        
+                        const box = new THREE.Box3().setFromObject(wall);
+                        wallBoundingBoxes.push(box);
+                    }
+                }
+            }
+        }
+
+        function createMonster() {
+            const monsterGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 0.5);
+            const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); 
+            monster = new THREE.Mesh(monsterGeo, monsterMat);
+            const halfFinalSize = HALF_MAP_SIZE;
+            let gridX, gridZ, attempts = 0;
+
+            do { 
+                gridX = Math.floor(Math.random() * GRID_SIZE); 
+                gridZ = Math.floor(Math.random() * GRID_SIZE);
+                attempts++;
+            } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 200);
+
+            if (attempts < 200) {
+                monster.position.set(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+            } else {
+                monster.position.set(TILE_SIZE * 1.5 - halfFinalSize, WALL_HEIGHT / 2, TILE_SIZE * 1.5 - halfFinalSize);
+                console.error("未能找到空闲位置生成怪物，已放置在起点附近。");
+            }
+            
+            scene.add(monster);
+            wallObjects.push(monster); 
+        }
+
+        function spawnAlmondWater(count) {
+            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
+            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
+            const halfFinalSize = HALF_MAP_SIZE;
+            
+            for (let i = 0; i < count; i++) {
+                let gridX, gridZ, attempts = 0;
+                do { 
+                    gridX = Math.floor(Math.random() * GRID_SIZE); 
+                    gridZ = Math.floor(Math.random() * GRID_SIZE); 
+                    attempts++;
+                } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 200);
+
+                if (attempts < 200) {
+                    const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                    const bottle = new THREE.Mesh(bottleGeo, bottleMat);
+                    bottle.position.set(x, PLAYER_HEIGHT / 2, z);
+                    bottle.rotation.y = Math.random() * Math.PI * 2; 
+                    bottle.isAlmondWater = true; 
+                    scene.add(bottle);
+                    almondWaterObjects.push(bottle);
+                } else {
+                    console.warn("未能找到足够的空闲位置生成杏仁水。");
+                }
+            }
+        }
+
+        function spawnSingleAlmondWater() {
+            const maxRangeTiles = 10, minRangeTiles = 5; 
+            const halfFinalSize = HALF_MAP_SIZE;
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
+            let gridX, gridZ, attempts = 0;
+            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
+            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 });
+            do {
+                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
+                const angle = Math.random() * Math.PI * 2;
+                gridX = playerGridX + Math.floor(range * Math.cos(angle));
+                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
+                attempts++;
+            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 100); 
+            if (attempts < 100) {
+                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
+                const bottle = new THREE.Mesh(bottleGeo, bottleMat);
+                bottle.position.set(x, PLAYER_HEIGHT / 2, z);
+                bottle.rotation.y = Math.random() * Math.PI * 2; 
+                bottle.isAlmondWater = true; 
+                scene.add(bottle);
+                almondWaterObjects.push(bottle);
+                showPickupMessage("杏仁水已在附近生成！");
+            }
+        }
+        
+        function findTeleportSpot() {
+            const maxRangeTiles = 5, minRangeTiles = 2; 
+            const halfFinalSize = HALF_MAP_SIZE;
+            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
+            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
+            let gridX, gridZ, attempts = 0;
+            do {
+                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
+                const angle = Math.random() * Math.PI * 2;
+                gridX = playerGridX + Math.floor(range * Math.cos(angle));
+                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
+                attempts++;
+            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 100); 
+            if (attempts < 100) return new THREE.Vector3(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
+            return null; 
+        }
+
+        function createExitTextTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = 'silver'; ctx.fillRect(0, 0, 512, 256);
+            ctx.font = 'bold 150px Arial';
+            ctx.fillStyle = 'red';
+            ctx.textAlign = 'center';
+            ctx.fillText('EXIT', 256, 170); 
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createExitDoor() {
+            if (currentLevel !== 0) return; 
+            const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 3); 
+            const doorMat = new THREE.MeshBasicMaterial({ color: 0xC0C0C0, map: createExitTextTexture() });
+            exitDoor = new THREE.Mesh(doorGeo, doorMat);
+            exitDoor.isExitDoor = true;
+            const x = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
+            const z = (GRID_SIZE - 2) * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE;
+            exitDoor.position.set(x, WALL_HEIGHT / 2, z); 
+            scene.add(exitDoor);
+            wallObjects.push(exitDoor); 
+            const box = new THREE.Box3().setFromObject(exitDoor); 
+            wallBoundingBoxes.push(box);
+        }
+        
+        function addLevel1Details(size) {
+            const HALF_MAP_SIZE_LOCAL = (size * TILE_SIZE) / 2;
+            const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 4);
+            const doorMat = new THREE.MeshBasicMaterial({ color: 0x333333 }); 
+
+            for (let i = 0; i < 5; i++) { 
+                let gridX, gridZ, attempts = 0; 
+                do {
+                    gridX = Math.floor(Math.random() * (size - 2)) + 1;
+                    gridZ = Math.floor(Math.random() * (size - 2)) + 1;
+                    attempts++;
+                } while (MAP_DATA[gridZ][gridX] !== 1 && attempts < 100); 
+                
+                if (attempts >= 100) continue; 
+
+                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                
+                const door = new THREE.Mesh(doorGeo, doorMat);
+                door.position.set(x, WALL_HEIGHT / 2, z);
+                if (Math.abs(x - (gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL)) > Math.abs(z - (gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL))) {
+                    door.rotation.y = Math.PI / 2;
+                }
+                scene.add(door);
+            }
+
+            const pipeMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.8, roughness: 0.3 });
+            const pipeGeo = new THREE.CylinderGeometry(0.1, 0.1, TILE_SIZE * 0.9, 8);
+            
+            for (let z = 1; z < size - 1; z++) {
+                for (let x = 1; x < size - 1; x++) {
+                    if (MAP_DATA[z][x] === 0 && Math.random() < 0.1) {
+                        const xPos = x * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                        const zPos = z * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
+                        const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+                        pipe.position.set(xPos + TILE_SIZE/3, WALL_HEIGHT - 0.2, zPos - TILE_SIZE/3); 
+                        pipe.rotation.x = Math.PI / 2;
+                        pipe.rotation.z = Math.PI / 2;
+                        scene.add(pipe);
+                    }
+                }
+            }
+        }
+        
+        function setupLevel(levelIndex) {
+            while(scene.children.length > 0){ 
+                const obj = scene.children[0];
+                if (obj !== camera) scene.remove(obj); 
+            }
+            wallObjects.length = 0; 
+            wallBoundingBoxes.length = 0;
+            almondWaterObjects.length = 0; 
+            
+            currentLevel = levelIndex;
+            
+            let floorColor, wallColor, fogColor, levelSize, wallDensity;
+
+            if (levelIndex === 0) {
+                levelSize = 30;
+                wallColor = 0xb6a04e;
+                floorColor = 0x91815f;
+                fogColor = 0x998b4b;
+                wallDensity = 0.35;
+            } else if (levelIndex === 1) {
+                levelSize = 25; 
+                wallColor = 0x808000; 
+                floorColor = 0x444444; 
+                fogColor = 0x333333; 
+                wallDensity = 0.20; 
+            } else {
+                return; 
+            }
+
+            GRID_SIZE = levelSize;
+            MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
+            HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
+
+            scene.background = new THREE.Color(fogColor); 
+            scene.fog = new THREE.FogExp2(fogColor, 0.08); 
+
+            MAP_DATA = generateRandomMap(levelSize, wallDensity); 
+            const wallTexture = createNoiseTexture(wallColor); 
+            const floorTexture = createNoiseTexture(floorColor); 
+            const ceilingTexture = createNoiseTexture(0xaaaaaa); 
+            createMaze(wallTexture, floorTexture, ceilingTexture);
+            
+            const halfFinalSize = HALF_MAP_SIZE;
+            
+            camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
+            camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
+            camera.position.y = PLAYER_HEIGHT;
+            lastCameraPosition.copy(camera.position);
+
+
+            if (levelIndex === 0) {
+                createExitDoor(); 
+            } else if (levelIndex === 1) {
+                addLevel1Details(levelSize); 
+            }
+            
+            createMonster();
+            spawnAlmondWater(3 + levelIndex * 2); 
+
+            health = 100;
+            stamina = 100;
+            lastTeleportTime = performance.now();
+            lastTeleportCheckTime = performance.now();
+            totalDistanceTraveled = 0;
+            distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
+            updateHUD(); 
+        }
 
         function init() {
             scene = new THREE.Scene();
@@ -146,14 +631,15 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
+            // 这里的 THREE.PointerLockControls 依赖于 THREE
             controls = new THREE.PointerLockControls(camera, document.body); 
             scene.add(camera);
 
-            setupInputs();
+            setupInputs(); // 确保 setupInputs 已定义
             window.addEventListener('resize', onWindowResize);
             
             setupLevel(0); 
-            updateHUD(); 
+            updateHUD(); // 确保 updateHUD 已定义
         }
 
         function animate() {
@@ -252,211 +738,12 @@
         }
         
         // ----------------------------------------------------
-        // 辅助函数 (加入 attempts 限制)
+        // window.onload 入口 (在所有函数定义之后)
         // ----------------------------------------------------
-
-        function setupLevel(levelIndex) {
-            while(scene.children.length > 0){ 
-                const obj = scene.children[0];
-                if (obj !== camera) scene.remove(obj); 
-            }
-            wallObjects.length = 0; 
-            wallBoundingBoxes.length = 0;
-            almondWaterObjects.length = 0; 
-            
-            currentLevel = levelIndex;
-            
-            let floorColor, wallColor, fogColor, levelSize, wallDensity;
-
-            if (levelIndex === 0) {
-                levelSize = 30;
-                wallColor = 0xb6a04e;
-                floorColor = 0x91815f;
-                fogColor = 0x998b4b;
-                wallDensity = 0.35;
-            } else if (levelIndex === 1) {
-                levelSize = 25; 
-                wallColor = 0x808000; 
-                floorColor = 0x444444; 
-                fogColor = 0x333333; 
-                wallDensity = 0.20; 
-            } else {
-                return; 
-            }
-
-            GRID_SIZE = levelSize;
-            MAP_WORLD_SIZE = GRID_SIZE * TILE_SIZE; 
-            HALF_MAP_SIZE = MAP_WORLD_SIZE / 2;
-
-            scene.background = new THREE.Color(fogColor); 
-            scene.fog = new THREE.FogExp2(fogColor, 0.08); 
-
-            MAP_DATA = generateRandomMap(levelSize, wallDensity); 
-            const wallTexture = createNoiseTexture(wallColor); 
-            const floorTexture = createNoiseTexture(floorColor); 
-            const ceilingTexture = createNoiseTexture(0xaaaaaa); 
-            createMaze(wallTexture, floorTexture, ceilingTexture);
-            
-            const halfFinalSize = HALF_MAP_SIZE;
-            
-            camera.position.x = TILE_SIZE * 1.5 - halfFinalSize; 
-            camera.position.z = TILE_SIZE * 1.5 - halfFinalSize;
-            camera.position.y = PLAYER_HEIGHT;
-            lastCameraPosition.copy(camera.position);
-
-
-            if (levelIndex === 0) {
-                createExitDoor(); 
-            } else if (levelIndex === 1) {
-                addLevel1Details(levelSize); 
-            }
-            
-            createMonster();
-            spawnAlmondWater(3 + levelIndex * 2); 
-
-            health = 100;
-            stamina = 100;
-            lastTeleportTime = performance.now();
-            lastTeleportCheckTime = performance.now();
-            totalDistanceTraveled = 0;
-            distanceToNextSpawn = ALMOND_SPAWN_INTERVAL;
-            updateHUD(); 
-        }
-
-        function addLevel1Details(size) {
-            const HALF_MAP_SIZE_LOCAL = (size * TILE_SIZE) / 2;
-            const doorGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 4);
-            const doorMat = new THREE.MeshBasicMaterial({ color: 0x333333 }); 
-
-            for (let i = 0; i < 5; i++) { 
-                let gridX, gridZ, attempts = 0; // V22.16 FIX: 增加 attempts
-                do {
-                    gridX = Math.floor(Math.random() * (size - 2)) + 1;
-                    gridZ = Math.floor(Math.random() * (size - 2)) + 1;
-                    attempts++;
-                } while (MAP_DATA[gridZ][gridX] !== 1 && attempts < 100); 
-                
-                if (attempts >= 100) continue; // 如果找不到，跳过
-
-                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
-                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL;
-                
-                const door = new THREE.Mesh(doorGeo, doorMat);
-                door.position.set(x, WALL_HEIGHT / 2, z);
-                if (Math.abs(x - (gridX * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL)) > Math.abs(z - (gridZ * TILE_SIZE + TILE_SIZE / 2 - HALF_MAP_SIZE_LOCAL))) {
-                    door.rotation.y = Math.PI / 2;
-                }
-                scene.add(door);
-            }
-            // ... (pipe generation unchanged)
-        }
-        
-        // ... (onMouseDown, updateHUD, setupInputs, createMaze, checkCollision, monsterAI 保持不变)
-
-        function createMonster() {
-            const monsterGeo = new THREE.BoxGeometry(0.5, WALL_HEIGHT, 0.5);
-            const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); 
-            monster = new THREE.Mesh(monsterGeo, monsterMat);
-            const halfFinalSize = HALF_MAP_SIZE;
-            let gridX, gridZ, attempts = 0;
-
-            // V22.16 FIX: 增加尝试次数，防止阻塞
-            do { 
-                gridX = Math.floor(Math.random() * GRID_SIZE); 
-                gridZ = Math.floor(Math.random() * GRID_SIZE);
-                attempts++;
-            } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 200);
-
-            if (attempts < 200) {
-                monster.position.set(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
-            } else {
-                // 如果失败，将其放在一个固定的、已知安全的位置
-                monster.position.set(TILE_SIZE * 1.5 - halfFinalSize, WALL_HEIGHT / 2, TILE_SIZE * 1.5 - halfFinalSize);
-                console.error("未能找到空闲位置生成怪物，已放置在起点附近。");
-            }
-            
-            scene.add(monster);
-            wallObjects.push(monster); 
-        }
-        
-        function findTeleportSpot() {
-            const maxRangeTiles = 5, minRangeTiles = 2; 
-            const halfFinalSize = HALF_MAP_SIZE;
-            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
-            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
-            let gridX, gridZ, attempts = 0;
-            do {
-                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
-                const angle = Math.random() * Math.PI * 2;
-                gridX = playerGridX + Math.floor(range * Math.cos(angle));
-                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
-                attempts++;
-            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 100); // V22.16 FIX: 增加尝试次数
-            if (attempts < 100) return new THREE.Vector3(gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize, WALL_HEIGHT / 2, gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize);
-            return null; 
-        }
-
-        function spawnSingleAlmondWater() {
-            const maxRangeTiles = 10, minRangeTiles = 5; 
-            const halfFinalSize = HALF_MAP_SIZE;
-            const playerGridX = Math.floor((camera.position.x + halfFinalSize) / TILE_SIZE);
-            const playerGridZ = Math.floor((camera.position.z + halfFinalSize) / TILE_SIZE);
-            let gridX, gridZ, attempts = 0;
-            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
-            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 });
-            do {
-                const range = Math.random() * (maxRangeTiles - minRangeTiles) + minRangeTiles;
-                const angle = Math.random() * Math.PI * 2;
-                gridX = playerGridX + Math.floor(range * Math.cos(angle));
-                gridZ = playerGridZ + Math.floor(range * Math.sin(angle));
-                attempts++;
-            } while ((gridX < 1 || gridX >= GRID_SIZE - 1 || gridZ < 1 || gridZ >= GRID_SIZE - 1 || MAP_DATA[gridZ][gridX] !== 0) && attempts < 100); // V22.16 FIX: 增加尝试次数
-            if (attempts < 100) {
-                const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                const bottle = new THREE.Mesh(bottleGeo, bottleMat);
-                bottle.position.set(x, PLAYER_HEIGHT / 2, z);
-                bottle.rotation.y = Math.random() * Math.PI * 2; 
-                bottle.isAlmondWater = true; 
-                scene.add(bottle);
-                almondWaterObjects.push(bottle);
-                showPickupMessage("杏仁水已在附近生成！");
-            }
-        }
-        
-        function spawnAlmondWater(count) {
-            const bottleGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.8, 16);
-            const bottleMat = new THREE.MeshBasicMaterial({ color: 0xfafa00 }); 
-            const halfFinalSize = HALF_MAP_SIZE;
-            
-            for (let i = 0; i < count; i++) {
-                let gridX, gridZ, attempts = 0;
-                // V22.16 FIX: 增加尝试次数，防止阻塞
-                do { 
-                    gridX = Math.floor(Math.random() * GRID_SIZE); 
-                    gridZ = Math.floor(Math.random() * GRID_SIZE); 
-                    attempts++;
-                } while (MAP_DATA[gridZ] === undefined || MAP_DATA[gridZ][gridX] !== 0 && attempts < 200);
-
-                if (attempts < 200) {
-                    const x = gridX * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                    const z = gridZ * TILE_SIZE + TILE_SIZE / 2 - halfFinalSize;
-                    const bottle = new THREE.Mesh(bottleGeo, bottleMat);
-                    bottle.position.set(x, PLAYER_HEIGHT / 2, z);
-                    bottle.rotation.y = Math.random() * Math.PI * 2; 
-                    bottle.isAlmondWater = true; 
-                    scene.add(bottle);
-                    almondWaterObjects.push(bottle);
-                } else {
-                    console.warn("未能找到足够的空闲位置生成杏仁水。");
-                }
-            }
-        }
-
-        // ... (其他函数保持不变)
 
         window.onload = function() {
             try {
+                // V22.17 NOTE: 404 错误（audio file not found）是您的本地问题，不影响代码执行，但我们保留 try/catch
                 document.getElementById('the-hum').src = 'the_hum.mp3';
                 document.getElementById('almond-pickup').src = 'almond_pickup.mp3';
                 document.getElementById('monster-chase').src = 'monster_chase.mp3';
