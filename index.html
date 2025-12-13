@@ -1,34 +1,195 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>3D 立方体房间漫游</title>
-    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-    
-    </head>
+    <meta charset="UTF-8">
+    <title>搞鸡专家</title>
+    <style>
+        body { text-align: center; padding: 50px 20px; font-family: Arial, sans-serif; margin: 0; }
+        .title { font-size: 48px; color: #333; margin-bottom: 30px; }
+        .counter { font-size: 60px; font-weight: bold; color: #e74c3c; margin: 20px 0; }
+        .main-btn { 
+            padding: 15px 40px; 
+            font-size: 24px; 
+            background: #3498db; 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            margin-bottom: 40px;
+        }
+        .main-btn:hover { background: #2980b9; }
+        .func-btns { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
+        .func-btn {
+            padding: 12px 25px;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #2ecc71;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 180px;
+        }
+        .func-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+        .func-desc { font-size: 14px; opacity: 0.9; line-height: 1.2; }
+        .modal {
+            position: fixed; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.7); 
+            display: none; 
+            justify-content: center; 
+            align-items: center; 
+            z-index: 100;
+        }
+        .modal-content {
+            background: white; 
+            padding: 40px; 
+            border-radius: 10px; 
+            font-size: 32px; 
+            color: #2c3e50;
+        }
+    </style>
+</head>
 <body>
+    <h1 class="title">搞鸡专家🐔</h1>
+    <div class="counter" id="counter">0</div>
+    <button class="main-btn" id="clickBtn">搞一次鸡🐔</button>
 
-    <a-scene background="color: #000000">
+    <div class="func-btns">
+        <button class="func-btn" id="multiBtn">
+            每次多搞一下
+            <span class="func-desc">价格：10次 | 当前等级：1级（+1/次）</span>
+        </button>
+        <button class="func-btn" id="autoBtn">
+            自动点击
+            <span class="func-desc">价格：50次 | 当前等级：1级（1次/秒）</span>
+        </button>
+        <button class="func-btn" id="doubleBtn">
+            限时30秒2倍数
+            <span class="func-desc">生效：0秒 | 冷却：0秒</span>
+        </button>
+    </div>
 
-        <a-assets>
-            <img id="room-texture" src="xlf.jpg">
-        </a-assets>
+    <div class="modal" id="easterEgg">
+        <div class="modal-content">我去，搞了这么多下，太牛了！👍👍👍</div>
+    </div>
 
-        <a-entity id="room-container">
-            <a-box 
-                width="10" height="10" depth="10" 
-                material="src: #room-texture; side: back; roughness: 1;" 
-                position="0 5 0">
-                </a-box>
-        </a-entity>
+    <script>
+        let count = 0;
+        // 功能配置：初始价格+递增系数（每次升级价格×系数，取整）
+        let multiLevel = 1;
+        const multiBase = 10;    // 多搞初始价格
+        const multiCoeff = 1.5;  // 多搞价格递增系数
+        let autoLevel = 1;
+        const autoBase = 50;     // 自动点击初始价格
+        const autoCoeff = 1.6;   // 自动点击价格递增系数
+        let isDouble = false;
+        let doubleCd = 0;
+        let doubleRemain = 0;    // 两倍速剩余生效时间
 
-        <a-entity
-            id="player"
-            camera
-            position="0 1.6 0"
-            look-controls="pointerLockEnabled: false"
-            wasd-controls="acceleration: 20">
-            </a-entity>
-        
-        </a-scene>
+        // DOM元素
+        const counterEl = document.getElementById('counter');
+        const clickBtn = document.getElementById('clickBtn');
+        const modal = document.getElementById('easterEgg');
+        const multiBtn = document.getElementById('multiBtn');
+        const autoBtn = document.getElementById('autoBtn');
+        const doubleBtn = document.getElementById('doubleBtn');
+        const eggNums = [13, 78, 91, 2778];
+
+        // 计算当前功能价格（算法：初始价格 × 系数^(等级-1)，向上取整）
+        function calcPrice(base, coeff, level) {
+            return Math.ceil(base * Math.pow(coeff, level - 1));
+        }
+
+        // 基础计数
+        function addCount(num) {
+            count += num * (isDouble ? 2 : 1);
+            counterEl.textContent = count;
+            checkEasterEgg();
+            updateBtnStates();
+        }
+
+        // 检查彩蛋
+        function checkEasterEgg() {
+            if (eggNums.includes(count)) {
+                modal.style.display = 'flex';
+                setTimeout(() => modal.style.display = 'none', 3000);
+            }
+        }
+
+        // 更新所有按钮状态+文案
+        function updateBtnStates() {
+            const multiPrice = calcPrice(multiBase, multiCoeff, multiLevel);
+            const autoPrice = calcPrice(autoBase, autoCoeff, autoLevel);
+
+            // 每次多搞
+            multiBtn.disabled = count < multiPrice;
+            multiBtn.querySelector('.func-desc').textContent = 
+                `价格：${multiPrice}次 | 当前等级：${multiLevel}级（+${multiLevel}/次）`;
+            
+            // 自动点击
+            autoBtn.disabled = count < autoPrice;
+            autoBtn.querySelector('.func-desc').textContent = 
+                `价格：${autoPrice}次 | 当前等级：${autoLevel}级（${autoLevel}次/秒）`;
+            
+            // 两倍速（显示生效剩余时间+冷却时间）
+            doubleBtn.disabled = doubleCd > 0;
+            doubleBtn.querySelector('.func-desc').textContent = 
+                `生效：${doubleRemain}秒 | 冷却：${doubleCd > 0 ? doubleCd + '秒' : '0秒'}`;
+        }
+
+        // 全局定时器：更新冷却+生效时间
+        setInterval(() => {
+            // 冷却倒计时
+            if (doubleCd > 0) doubleCd--;
+            // 生效时间倒计时
+            if (doubleRemain > 0) {
+                doubleRemain--;
+                if (doubleRemain === 0) isDouble = false; // 时间到关闭两倍速
+            }
+            updateBtnStates();
+        }, 1000);
+
+        // 主按钮
+        clickBtn.addEventListener('click', () => addCount(multiLevel));
+
+        // 每次多搞（升级）
+        multiBtn.addEventListener('click', () => {
+            const multiPrice = calcPrice(multiBase, multiCoeff, multiLevel);
+            if (count >= multiPrice) {
+                count -= multiPrice;
+                multiLevel++;
+                addCount(0); // 触发状态更新
+            }
+        });
+
+        // 自动点击（升级）
+        autoBtn.addEventListener('click', () => {
+            const autoPrice = calcPrice(autoBase, autoCoeff, autoLevel);
+            if (count >= autoPrice) {
+                count -= autoPrice;
+                autoLevel++;
+                clearInterval(window.autoInterval);
+                // 自动点击频率：等级越高，间隔越短（1秒/等级 次）
+                window.autoInterval = setInterval(() => addCount(autoLevel), 1000 / autoLevel);
+                addCount(0);
+            }
+        });
+
+        // 限时两倍速
+        doubleBtn.addEventListener('click', () => {
+            isDouble = true;
+            doubleRemain = 30; // 生效30秒
+            doubleCd = 60;    // 冷却60秒
+            updateBtnStates();
+        });
+
+        // 初始化
+        updateBtnStates();
+    </script>
 </body>
 </html>
