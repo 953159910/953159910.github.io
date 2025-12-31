@@ -1,111 +1,129 @@
-// game.js
+
 import * as THREE from 'three';
 
 const Game = {
     scene: null, camera: null, renderer: null,
     isPlaying: false,
+    mode: 'survival', // 默认生存模式
+    player: { vel: new THREE.Vector3(), onGround: false, speed: 0.15 },
+    moveDir: { f: 0, r: 0 },
     chunks: new Map(),
-    player: {
-        height: 1.8, velocity: new THREE.Vector3(),
-        isGrounded: false,
-        speed: 0.1
-    },
 
     init() {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x87ceeb);
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
         
-        this.renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas') });
+        this.renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: false });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+        this.scene.add(light);
 
-        const sun = new THREE.DirectionalLight(0xffffff, 1);
-        sun.position.set(10, 20, 10);
-        this.scene.add(sun, new THREE.AmbientLight(0x404040));
-
+        this.bindEvents();
         this.animate();
     },
 
-    createSave() {
-        const seed = Math.random() * 1000;
-        const name = "生存世界 " + Math.floor(seed);
-        const save = { name, seed, pos: { x: 0, y: 15, z: 0 } };
-        
-        // 保存到本地
-        let saves = JSON.parse(localStorage.getItem('mc_saves') || '[]');
-        saves.push(save);
-        localStorage.setItem('mc_saves', JSON.stringify(saves));
-        this.loadGame(save);
+    setMode(m) {
+        this.mode = m;
+        document.getElementById('mode-survival').classList.toggle('active', m === 'survival');
+        document.getElementById('mode-creative').classList.toggle('active', m === 'creative');
     },
 
-    loadGame(save) {
-        document.querySelectorAll('.ui-overlay').forEach(el => el.classList.remove('active'));
-        document.getElementById('game-controls').style.display = 'block';
-        this.camera.position.set(save.pos.x, save.pos.y, save.pos.z);
-        this.currentSeed = save.seed;
+    startNew() {
         this.isPlaying = true;
+        this.camera.position.set(0, 20, 0);
+        UI.hideAll();
+        document.getElementById('game-controls').style.display = 'block';
+        document.getElementById('hud').style.display = 'flex';
     },
 
-    // 真正的随机地形生成
-    generateTerrain(cx, cz) {
-        const size = 16;
-        const group = new THREE.Group();
-        const geo = new THREE.BoxGeometry(1, 1, 1);
-        const mat = new THREE.MeshLambertMaterial({ color: 0x55aa55 });
+    bindEvents() {
+        // 摇杆逻辑
+        const stick = document.getElementById('stick');
+        document.getElementById('joystick-zone').addEventListener('touchmove', (e) => {
+            const t = e.touches[0];
+            const r = e.currentTarget.getBoundingClientRect();
+            const dx = t.clientX - (r.left + 60), dy = t.clientY - (r.top + 60);
+            const d = Math.min(Math.sqrt(dx*dx+dy*dy), 45);
+            const a = Math.atan2(dy, dx);
+            stick.style.transform = `translate(${Math.cos(a)*d}px, ${Math.sin(a)*d}px)`;
+            this.moveDir.f = -Math.sin(a) * (d/45);
+            this.moveDir.r = Math.cos(a) * (d/45);
+        });
 
-        for(let x=0; x<size; x++) {
-            for(let z=0; z<size; z++) {
-                const wx = cx * size + x;
-                const wz = cz * size + z;
-                // 复杂波形模拟起伏山脉
-                const h = Math.floor(Math.sin(wx*0.1) * 3 + Math.cos(wz*0.1) * 3 + 5);
-                
-                const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(wx, h, wz);
-                group.add(mesh);
-            }
-        }
-        this.scene.add(group);
-        this.chunks.set(`${cx},${cz}`, group);
+        document.getElementById('joystick-zone').addEventListener('touchend', () => {
+            stick.style.transform = 'translate(0,0)';
+            this.moveDir = { f: 0, r: 0 };
+        });
+
+        // 动作按钮绑定
+        document.getElementById('btn-jump').onclick = () => {
+            if (this.player.onGround || this.mode === 'creative') this.player.vel.y = 0.2;
+        };
+        
+        document.getElementById('btn-attack').onclick = () => console.log("挖掘方块...");
+        document.getElementById('btn-place').onclick = () => console.log("放置方块...");
     },
 
     animate() {
         requestAnimationFrame(() => this.animate());
-        if(!this.isPlaying) return;
+        if (!this.isPlaying) return;
 
-        // 1. 物理重力
-        this.player.velocity.y -= 0.01; // 重力加速度
-        this.camera.position.y += this.player.velocity.y;
-
-        // 简易地面碰撞 (修复卡在空中的问题)
-        if(this.camera.position.y < 8) {
-            this.camera.position.y = 8;
-            this.player.velocity.y = 0;
-            this.player.isGrounded = true;
+        // 模式逻辑
+        if (this.mode === 'survival') {
+            this.player.vel.y -= 0.01; // 重力
+        } else {
+            this.player.vel.y *= 0.9; // 创造模式漂浮感
         }
 
-        // 2. 动态生成无限世界
-        const currCX = Math.floor(this.camera.position.x / 16);
-        const currCZ = Math.floor(this.camera.position.z / 16);
-        for(let x = currCX-1; x <= currCX+1; x++) {
-            for(let z = currCZ-1; z <= currCZ+1; z++) {
-                if(!this.chunks.has(`${x},${z}`)) this.generateTerrain(x, z);
-            }
+        this.camera.position.y += this.player.vel.y;
+
+        // 地面碰撞检测 (简易版)
+        if (this.camera.position.y < 10) {
+            this.camera.position.y = 10;
+            this.player.vel.y = 0;
+            this.player.onGround = true;
+        } else {
+            this.player.onGround = false;
         }
+
+        // 移动
+        this.camera.translateZ(-this.moveDir.f * this.player.speed);
+        this.camera.translateX(this.moveDir.r * this.player.speed);
+
+        // 地形动态生成
+        const cx = Math.floor(this.camera.position.x / 10);
+        const cz = Math.floor(this.camera.position.z / 10);
+        if (!this.chunks.has(`${cx},${cz}`)) this.generateChunk(cx, cz);
 
         this.renderer.render(this.scene, this.camera);
+    },
+
+    generateChunk(cx, cz) {
+        const group = new THREE.Group();
+        const mesh = new THREE.Mesh(
+            new THREE.BoxGeometry(10, 1, 10),
+            new THREE.MeshLambertMaterial({ color: 0x5da048 })
+        );
+        mesh.position.set(cx * 10, 5, cz * 10);
+        group.add(mesh);
+        this.scene.add(group);
+        this.chunks.set(`${cx},${cz}`, group);
     }
 };
 
-// UI 逻辑
 window.UI = {
     show: (id) => {
-        document.querySelectorAll('.ui-overlay').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.overlay').forEach(l => l.classList.remove('active'));
         document.getElementById(id).classList.add('active');
+        Game.isPlaying = false;
     },
-    openInv: () => document.getElementById('ui-inv').classList.add('active'),
-    closeInv: () => document.getElementById('ui-inv').classList.remove('active')
+    hideAll: () => {
+        document.querySelectorAll('.overlay').forEach(l => l.classList.remove('active'));
+        Game.isPlaying = true;
+    },
+    togglePause: () => this.show('menu-main')
 };
 
-window.Game = Game;
 Game.init();
