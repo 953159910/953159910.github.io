@@ -3,46 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>JS-Craft 专业版</title>
+    <title>JS-Craft Pro</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <canvas id="game-canvas"></canvas>
 
-    <div id="menu-main" class="ui-overlay active">
-        <h1>JS-CRAFT</h1>
-        <div class="menu-btn" onclick="UI.show('menu-saves')">进入世界</div>
-        <div class="menu-btn" onclick="UI.show('menu-settings')">游戏设置</div>
+    <div id="hud">
+        <div id="stats-bar">❤️ <span id="hp-val">20</span> | 🍖 <span id="hunger-val">20</span></div>
+        <div id="top-menu-btn" onclick="UI.togglePause()">菜单</div>
     </div>
 
-    <div id="menu-saves" class="ui-overlay">
-        <h2>选择存档</h2>
-        <div id="save-list"></div>
-        <div class="menu-btn" onclick="Game.createSave()">新建生存世界</div>
-        <div class="menu-btn back" onclick="UI.show('menu-main')">返回</div>
+    <div id="menu-main" class="overlay active">
+        <h1>JS-CRAFT PRO</h1>
+        <div class="btn" onclick="UI.show('menu-saves')">进入世界</div>
+        <div class="btn" onclick="UI.show('menu-settings')">游戏设置</div>
     </div>
 
-    <div id="ui-inv" class="ui-overlay">
-        <div class="inv-box">
+    <div id="menu-saves" class="overlay">
+        <h2>创建世界</h2>
+        <div class="mode-select">
+            <button class="btn-sm active" id="mode-survival" onclick="Game.setMode('survival')">生存模式</button>
+            <button class="btn-sm" id="mode-creative" onclick="Game.setMode('creative')">创造模式</button>
+        </div>
+        <div class="btn" onclick="Game.startNew()">开始新的探索</div>
+        <div class="btn back" onclick="UI.show('menu-main')">返回</div>
+    </div>
+
+    <div id="menu-settings" class="overlay">
+        <h2>游戏设置</h2>
+        <div class="setting-item">
+            <span>视野 (FOV):</span>
+            <input type="range" min="60" max="110" value="75" oninput="Game.updateFOV(this.value)">
+        </div>
+        <div class="setting-item">
+            <span>渲染距离:</span>
+            <button class="btn-sm" onclick="Game.updateDist()">切换</button>
+        </div>
+        <div class="btn back" onclick="UI.show('menu-main')">保存并返回</div>
+    </div>
+
+    <div id="ui-inv" class="overlay">
+        <div class="inv-panel">
             <div class="inv-top">
-                <div class="skin-preview"></div> <div class="armor-slots">
-                    <div class="slot">头</div><div class="slot">胸</div>
+                <div class="skin-box"></div>
+                <div class="armor-slots">
+                    <div class="slot"></div><div class="slot"></div>
                 </div>
-                <div class="crafting-2x2">合成</div>
             </div>
-            <div class="inv-bottom" id="inv-grid"></div>
-            <div class="menu-btn" onclick="UI.closeInv()">关闭</div>
+            <div class="inv-grid" id="inv-grid"></div>
+            <div class="btn" onclick="UI.hideAll()">关闭背包</div>
         </div>
     </div>
 
     <div id="game-controls">
-        <div id="joystick"><div id="stick"></div></div>
-        <div class="action-bar">
-            <div class="act-btn" id="jump-btn">跳跃</div>
-            <div class="act-btn" id="crouch-btn">下蹲</div>
-            <div class="act-btn" id="inv-btn" onclick="UI.openInv()">背包</div>
+        <div id="joystick-zone"><div id="stick"></div></div>
+        
+        <div class="right-actions">
+            <div class="act-btn" id="btn-jump">跳跃</div>
+            <div class="act-btn" id="btn-crouch">下蹲</div>
+            <div class="act-btn" id="btn-attack">攻击</div>
+            <div class="act-btn" id="btn-place">放置</div>
+            <div class="act-btn" id="btn-inv" onclick="UI.show('ui-inv')">背包</div>
         </div>
-        <div id="hotbar"></div>
     </div>
 
     <script type="importmap">
@@ -51,3 +74,4 @@
     <script src="game.js" type="module"></script>
 </body>
 </html>
+
