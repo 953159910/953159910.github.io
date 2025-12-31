@@ -1,77 +1,265 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>JS-Craft Pro</title>
-    <link rel="stylesheet" href="style.css">
+    <title>JS-Craft Ultimate Fix</title>
+    <style>
+        /* CSS：确保所有 UI 层级正确 */
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        canvas { position: fixed; inset: 0; z-index: 1; display: block; }
+
+        /* 统一遮罩层 */
+        .layer { position: fixed; inset: 0; z-index: 100; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; }
+        .active { display: flex !important; }
+
+        /* 按钮与菜单 */
+        .btn { width: 220px; padding: 12px; margin: 8px; background: #555; border: 3px solid #000; color: #fff; text-align: center; cursor: pointer; font-weight: bold; }
+        .btn:active { background: #333; transform: scale(0.98); }
+        .row { display: flex; gap: 10px; margin: 10px; }
+        .selected { background: #5da048 !important; border-color: #fff; }
+
+        /* 背包界面 */
+        .inv-box { background: #c6c6c6; padding: 20px; border: 4px solid #333; color: #000; width: 90%; max-width: 450px; }
+        .inv-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-top: 10px; }
+        .slot { aspect-ratio: 1; background: #8b8b8b; border: 2px solid #373737; }
+        .char-area { width: 80px; height: 120px; background: #000; border: 2px solid #333; margin-bottom: 10px; }
+
+        /* 游戏控制 (最高层级) */
+        #game-ui { position: fixed; inset: 0; z-index: 50; display: none; pointer-events: none; }
+        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; background: rgba(255,255,255,0.1); border-radius: 50%; pointer-events: all; }
+        #stick { position: absolute; inset: 35px; background: #fff; border-radius: 50%; opacity: 0.5; }
+        
+        .action-group { position: absolute; bottom: 30px; right: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; pointer-events: all; }
+        .circ-btn { width: 65px; height: 65px; background: rgba(0,0,0,0.5); border: 2px solid #fff; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+
+        #hud { position: fixed; top: 10px; left: 10px; z-index: 60; color: white; text-shadow: 2px 2px #000; pointer-events: none; }
+    </style>
 </head>
 <body>
+
     <canvas id="game-canvas"></canvas>
 
-    <div id="hud">
-        <div id="stats-bar">❤️ <span id="hp-val">20</span> | 🍖 <span id="hunger-val">20</span></div>
-        <div id="top-menu-btn" onclick="UI.togglePause()">菜单</div>
+    <div id="ui-main" class="layer active">
+        <h1 style="color: #7fef34; font-size: 48px; text-shadow: 3px 3px #000;">JS-CRAFT</h1>
+        <div class="btn" onclick="UI.show('ui-saves')">开始游戏</div>
+        <div class="btn" onclick="UI.show('ui-settings')">游戏设置</div>
     </div>
 
-    <div id="menu-main" class="overlay active">
-        <h1>JS-CRAFT PRO</h1>
-        <div class="btn" onclick="UI.show('menu-saves')">进入世界</div>
-        <div class="btn" onclick="UI.show('menu-settings')">游戏设置</div>
-    </div>
-
-    <div id="menu-saves" class="overlay">
-        <h2>创建世界</h2>
-        <div class="mode-select">
-            <button class="btn-sm active" id="mode-survival" onclick="Game.setMode('survival')">生存模式</button>
-            <button class="btn-sm" id="mode-creative" onclick="Game.setMode('creative')">创造模式</button>
+    <div id="ui-saves" class="layer">
+        <h2>创建新世界</h2>
+        <div class="row">
+            <div id="mode-surv" class="btn selected" style="width:100px" onclick="Game.setMode('survival')">生存</div>
+            <div id="mode-crea" class="btn" style="width:100px" onclick="Game.setMode('creative')">创造</div>
         </div>
-        <div class="btn" onclick="Game.startNew()">开始新的探索</div>
-        <div class="btn back" onclick="UI.show('menu-main')">返回</div>
+        <div class="btn" style="background: #4a7a3a" onclick="Game.start()">进入世界</div>
+        <div class="btn" onclick="UI.show('ui-main')">返回</div>
     </div>
 
-    <div id="menu-settings" class="overlay">
-        <h2>游戏设置</h2>
-        <div class="setting-item">
-            <span>视野 (FOV):</span>
-            <input type="range" min="60" max="110" value="75" oninput="Game.updateFOV(this.value)">
+    <div id="ui-settings" class="layer">
+        <h2>设置</h2>
+        <div style="margin: 20px;">
+            视野 (FOV): <input type="range" min="50" max="110" value="75" oninput="Game.updateFOV(this.value)">
         </div>
-        <div class="setting-item">
-            <span>渲染距离:</span>
-            <button class="btn-sm" onclick="Game.updateDist()">切换</button>
-        </div>
-        <div class="btn back" onclick="UI.show('menu-main')">保存并返回</div>
+        <div class="btn" onclick="UI.show('ui-main')">完成</div>
     </div>
 
-    <div id="ui-inv" class="overlay">
-        <div class="inv-panel">
-            <div class="inv-top">
-                <div class="skin-box"></div>
-                <div class="armor-slots">
-                    <div class="slot"></div><div class="slot"></div>
+    <div id="ui-inv" class="layer">
+        <div class="inv-box">
+            <div style="display:flex; gap:20px">
+                <div class="char-area"></div>
+                <div>
+                    <p>装备槽</p>
+                    <div style="display:flex; gap:5px"><div class="slot" style="width:30px"></div><div class="slot" style="width:30px"></div></div>
                 </div>
             </div>
-            <div class="inv-grid" id="inv-grid"></div>
-            <div class="btn" onclick="UI.hideAll()">关闭背包</div>
+            <div class="inv-grid" id="inv-grid-container"></div>
+            <div class="btn" style="width:100%; margin-top:15px" onclick="UI.hideAll()">关闭</div>
         </div>
     </div>
 
-    <div id="game-controls">
+    <div id="hud" style="display:none">❤️ HP: <span id="hp">20</span> | 🍖 <span id="hg">20</span></div>
+    
+    <div id="game-ui">
         <div id="joystick-zone"><div id="stick"></div></div>
-        
-        <div class="right-actions">
-            <div class="act-btn" id="btn-jump">跳跃</div>
-            <div class="act-btn" id="btn-crouch">下蹲</div>
-            <div class="act-btn" id="btn-attack">攻击</div>
-            <div class="act-btn" id="btn-place">放置</div>
-            <div class="act-btn" id="btn-inv" onclick="UI.show('ui-inv')">背包</div>
+        <div class="action-group">
+            <div class="circ-btn" onclick="UI.show('ui-inv')">背包</div>
+            <div class="circ-btn" id="btn-jump">跳跃</div>
+            <div class="circ-btn" onclick="Game.action('dig')">破坏</div>
+            <div class="circ-btn" onclick="Game.action('place')">放置</div>
+            <div class="circ-btn" id="btn-crouch">下蹲</div>
+            <div class="circ-btn" onclick="UI.show('ui-main')">菜单</div>
         </div>
     </div>
 
-    <script type="importmap">
-        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-    </script>
-    <script src="game.js" type="module"></script>
+<script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+
+    const UI = {
+        show: (id) => {
+            document.querySelectorAll('.layer').forEach(l => l.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            Game.isPlaying = false;
+        },
+        hideAll: () => {
+            document.querySelectorAll('.layer').forEach(l => l.classList.remove('active'));
+            Game.isPlaying = true;
+        }
+    };
+
+    const Game = {
+        scene: null, camera: null, renderer: null,
+        isPlaying: false,
+        mode: 'survival',
+        player: { vel: new THREE.Vector3(), onGround: false },
+        moveDir: { f: 0, r: 0 },
+        chunks: new Map(),
+
+        init() {
+            // 立即初始化渲染器，防止黑屏
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x87ceeb);
+            this.camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+            
+            this.renderer = new THREE.WebGLRenderer({ 
+                canvas: document.getElementById('game-canvas'),
+                antialias: false 
+            });
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.setPixelRatio(window.devicePixelRatio);
+
+            const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+            this.scene.add(light);
+
+            this.setupControls();
+            this.initInv();
+            this.animate();
+        },
+
+        setMode(m) {
+            this.mode = m;
+            document.getElementById('mode-surv').classList.toggle('selected', m==='survival');
+            document.getElementById('mode-crea').classList.toggle('selected', m==='creative');
+        },
+
+        updateFOV(v) {
+            this.camera.fov = v;
+            this.camera.updateProjectionMatrix();
+        },
+
+        start() {
+            UI.hideAll();
+            document.getElementById('game-ui').style.display = 'block';
+            document.getElementById('hud').style.display = 'block';
+            this.camera.position.set(0, 20, 0);
+            this.isPlaying = true;
+        },
+
+        initInv() {
+            const container = document.getElementById('inv-grid-container');
+            for(let i=0; i<27; i++) {
+                const s = document.createElement('div');
+                s.className = 'slot';
+                container.appendChild(s);
+            }
+        },
+
+        setupControls() {
+            const stick = document.getElementById('stick');
+            document.getElementById('joystick-zone').addEventListener('touchmove', (e) => {
+                const t = e.touches[0];
+                const r = e.currentTarget.getBoundingClientRect();
+                const dx = t.clientX - (r.left + 60), dy = t.clientY - (r.top + 60);
+                const d = Math.min(Math.sqrt(dx*dx+dy*dy), 45);
+                const a = Math.atan2(dy, dx);
+                stick.style.transform = `translate(${Math.cos(a)*d}px, ${Math.sin(a)*d}px)`;
+                this.moveDir.f = -Math.sin(a) * (d/45);
+                this.moveDir.r = Math.cos(a) * (d/45);
+            });
+            document.getElementById('joystick-zone').addEventListener('touchend', () => {
+                stick.style.transform = 'translate(0,0)';
+                this.moveDir = { f:0, r:0 };
+            });
+
+            document.getElementById('btn-jump').addEventListener('touchstart', () => {
+                if(this.player.onGround || this.mode === 'creative') this.player.vel.y = 0.15;
+            });
+            
+            document.getElementById('btn-crouch').addEventListener('touchstart', () => { this.camera.position.y -= 0.5; });
+            document.getElementById('btn-crouch').addEventListener('touchend', () => { this.camera.position.y += 0.5; });
+        },
+
+        action(type) {
+            console.log("执行动作: " + type);
+            // 这里以后可以加 Raycaster 挖掘逻辑
+        },
+
+        generateChunk(cx, cz) {
+            const size = 10;
+            const group = new THREE.Group();
+            const geo = new THREE.BoxGeometry(1, 1, 1);
+            const mat = new THREE.MeshLambertMaterial({ color: 0x5da048 });
+
+            for(let x=0; x<size; x++) {
+                for(let z=0; z<size; z++) {
+                    const wx = cx * size + x;
+                    const wz = cz * size + z;
+                    const h = Math.floor(Math.sin(wx*0.2) * 2 + 5);
+                    const mesh = new THREE.Mesh(geo, mat);
+                    mesh.position.set(wx, h, wz);
+                    group.add(mesh);
+                }
+            }
+            this.scene.add(group);
+            this.chunks.set(`${cx},${cz}`, group);
+        },
+
+        animate() {
+            requestAnimationFrame(() => this.animate());
+            
+            if(this.isPlaying) {
+                // 物理
+                if(this.mode === 'survival') this.player.vel.y -= 0.008;
+                else this.player.vel.y *= 0.8; // 创造模式缓慢减速
+
+                this.camera.position.y += this.player.vel.y;
+
+                // 地面检测
+                if(this.camera.position.y < 10) {
+                    this.camera.position.y = 10;
+                    this.player.vel.y = 0;
+                    this.player.onGround = true;
+                } else {
+                    this.player.onGround = false;
+                }
+
+                // 移动
+                this.camera.translateZ(-this.moveDir.f * 0.15);
+                this.camera.translateX(this.moveDir.r * 0.15);
+
+                // 无限地形加载
+                const cx = Math.floor(this.camera.position.x / 10);
+                const cz = Math.floor(this.camera.position.z / 10);
+                for(let x=cx-1; x<=cx+1; x++) {
+                    for(let z=cz-1; z<=cz+1; z++) {
+                        if(!this.chunks.has(`${x},${z}`)) this.generateChunk(x, z);
+                    }
+                }
+            }
+            
+            this.renderer.render(this.scene, this.camera);
+        }
+    };
+
+    window.UI = UI;
+    window.Game = Game;
+    Game.init();
+
+</script>
 </body>
 </html>
-
