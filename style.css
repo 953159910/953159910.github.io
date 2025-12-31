@@ -1,22 +1,34 @@
 /* style.css */
-body { margin: 0; background: #000; font-family: 'Courier New', monospace; overflow: hidden; touch-action: none; }
-.ui-overlay {
+:root { --mc-gui: #c6c6c6; }
+body { margin: 0; background: #000; overflow: hidden; touch-action: none; font-family: sans-serif; }
+
+.overlay {
     position: fixed; inset: 0; z-index: 100;
     display: none; flex-direction: column; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.7); color: white;
+    background: rgba(0,0,0,0.8); color: white;
 }
-.active { display: flex; }
-.menu-btn {
-    width: 200px; padding: 12px; margin: 10px; background: #555;
-    border: 3px solid #000; cursor: pointer; text-align: center;
-}
-.inv-box { background: #c6c6c6; padding: 20px; border: 4px solid #333; color: #000; }
-.inv-grid { display: grid; grid-template-columns: repeat(9, 40px); gap: 4px; margin-top: 10px; }
-.slot { width: 40px; height: 40px; background: #8b8b8b; border: 2px solid #373737; }
-.skin-preview { width: 80px; height: 120px; background: #000; margin-bottom: 5px; }
+.active { display: flex !important; }
 
+/* 按钮样式 */
+.btn { width: 220px; padding: 15px; margin: 10px; background: #555; border: 3px solid #000; color: #fff; cursor: pointer; text-align: center; }
+.btn-sm { padding: 5px 15px; background: #444; border: 2px solid #000; color: #fff; margin: 5px; }
+.btn-sm.active { background: #5da048; }
+
+/* HUD */
+#hud { position: fixed; top: 10px; width: 100%; display: none; justify-content: space-between; padding: 0 20px; box-sizing: border-box; z-index: 60; color: white; pointer-events: none; }
+#top-menu-btn { pointer-events: all; background: rgba(0,0,0,0.5); padding: 5px 15px; border: 1px solid #fff; }
+
+/* 控制器：关键在于 pointer-events */
 #game-controls { position: fixed; inset: 0; z-index: 50; display: none; pointer-events: none; }
-#joystick { position: absolute; bottom: 50px; left: 50px; width: 100px; height: 100px; background: rgba(255,255,255,0.2); border-radius: 50%; pointer-events: all; }
-#stick { position: absolute; inset: 25px; background: white; border-radius: 50%; opacity: 0.5; }
-.action-bar { position: absolute; bottom: 50px; right: 20px; pointer-events: all; display: flex; flex-direction: column; gap: 10px; }
-.act-btn { width: 60px; height: 60px; background: rgba(0,0,0,0.5); border: 2px solid #fff; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; }
+#joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; background: rgba(255,255,255,0.1); border-radius: 50%; pointer-events: all; }
+#stick { position: absolute; inset: 35px; background: #fff; border-radius: 50%; opacity: 0.5; }
+
+.right-actions { position: absolute; bottom: 30px; right: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; pointer-events: all; }
+.act-btn { width: 65px; height: 65px; background: rgba(0,0,0,0.5); border: 2px solid #fff; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+
+/* 背包 */
+.inv-panel { background: var(--mc-gui); padding: 20px; border: 4px solid #333; color: #000; }
+.inv-grid { display: grid; grid-template-columns: repeat(9, 35px); gap: 3px; margin-top: 10px; }
+.slot { width: 35px; height: 35px; background: #8b8b8b; border: 2px solid #373737; }
+.skin-box { width: 60px; height: 100px; background: #000; }
+
